@@ -1,0 +1,50 @@
+# --- whitelist style: ignore everything, allow only the project files. ---
+# This protects against accidentally committing secrets if a contributor drops
+# a key file or DB into the repo root.
+
+*
+
+# Allow specific top-level paths
+!/.gitignore
+!/README.md
+!/LICENSE
+!/serve.py
+!/nvidia_chatbot.html
+!/vibevoice_worker.py
+!/a.env.example
+!/docs/
+!/docs/**/
+!/scripts/
+!/scripts/**/
+
+# Inside the allowed dirs, allow tracked file types only
+!/docs/**/*.md
+!/docs/**/*.conf
+!/docs/**/*.png
+!/scripts/**/*.sh
+
+# Hard denies — even if someone mass-adds, these never go in
+chat.db
+chat.db-*
+*.db
+*.db-shm
+*.db-wal
+a.env
+*.env
+!a.env.example
+priv.key
+*.pem
+*.key
+.ssh/
+serve.log
+*.log
+__pycache__/
+*.pyc
+voices/
+.cache/
+.claude/
+.bash_history
+.python_history
+node_modules/
+.DS_Store
+artifacts/

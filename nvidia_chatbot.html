@@ -1,0 +1,3964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- CSP is set as an HTTP response header by serve.py. The header form is
+     authoritative and supports `frame-ancestors`, which a meta http-equiv
+     can't deliver. The script-src hash for the inline JS block near the
+     bottom of this file is computed at serve time from the actual bytes,
+     so edits to the JS don't require anyone updating a hash by hand. -->
+<title>NIMINI</title>
+<!-- Inline SVG favicon. Cream background + burgundy serif N to match the
+     wordmark; keeps the single-file build (no separate /favicon.ico fetch). -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23f6f1e8'/%3E%3Ctext x='32' y='48' font-family='Georgia,serif' font-size='48' font-style='italic' font-weight='700' text-anchor='middle' fill='%236b1f2a'%3EN%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,ital,wght@9..144,0,400..700;9..144,1,400..600&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"
+        integrity="sha384-YTBHtsL8yVTHcLakYNyrOfK3K+QQcXiECuaALJ+3j7Mo681Rtzadt8NR6WrZH+eQ"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"
+        integrity="sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu"
+        crossorigin="anonymous"></script>
+<!-- KaTeX for LaTeX rendering. We use the core renderToString API directly
+     (not auto-render), so we control exactly which substrings get parsed as
+     math vs. left as code/text. The CSS provides math-glyph fonts. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+      integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+"
+      crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
+        integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg"
+        crossorigin="anonymous"></script>
+<style>
+  :root {
+    --bg: #f6f1e8; --bg-elev: #fbf7ef; --bg-soft: #f2ecdf;
+    --ink: #1a1612; --ink-soft: #4a4137; --ink-mute: #8a7e6e;
+    --line: #e4dccb; --line-soft: #ece5d3;
+    --accent: #6b1f2a; --accent-soft: #c1556d; --rose: #f3d9dd;
+    --user-bubble: #1a1612; --user-text: #fbf7ef;
+    --bot-bubble: #fbf7ef;
+    --code-bg: #1a1612; --code-text: #f3d9dd;
+    --shadow: 0 1px 2px rgba(26,22,18,0.04), 0 8px 32px rgba(26,22,18,0.06);
+    --green: #4a7c4f; --amber: #d4a648; --red: #b54a4a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter Tight', sans-serif;
+    background: var(--bg); color: var(--ink);
+    font-size: 15px; line-height: 1.55;
+    overflow: hidden; -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    display: grid; grid-template-columns: 340px 1fr;
+    /* Mobile browsers: 100vh measures the *largest possible* viewport (chrome
+       hidden), so content overflows the actual visible area when the URL bar
+       is showing. dvh tracks the dynamic viewport (resizes with chrome) and
+       is supported in all evergreen browsers since 2022. svh is the safest
+       fallback (smallest viewport — chrome always shown).  */
+    height: 100vh;       /* legacy fallback */
+    height: 100svh;      /* small-viewport fallback (chrome shown) */
+    height: 100dvh;      /* dynamic — preferred */
+    /* Honour iOS notch / Android gesture bar so topbar/composer stay reachable */
+    padding-top: env(safe-area-inset-top, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    box-sizing: border-box;
+  }
+
+  /* ----- Sidebar toggle: desktop collapse + mobile slide-in ----- */
+  .sidebar-toggle {
+    background: transparent; border: none; cursor: pointer;
+    width: 34px; height: 34px; padding: 0; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-mute); border-radius: 8px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sidebar-toggle:hover { background: var(--bg-soft); color: var(--ink); }
+  .sidebar-toggle svg { width: 20px; height: 20px; }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 100vh;
+    height: 100svh;
+    height: 100dvh;
+    background: rgba(26,22,18,0.5);
+    z-index: 198;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Desktop: collapsed = grid column shrinks to zero */
+  .app.sidebar-collapsed { grid-template-columns: 0 1fr; }
+  .app.sidebar-collapsed .sidebar {
+    overflow: hidden;
+    border-right: none;
+  }
+
+  @media (max-width: 768px) {
+    .app { grid-template-columns: 1fr; }
+    .app.sidebar-collapsed { grid-template-columns: 1fr; }  /* no-op on mobile */
+    .sidebar {
+      position: fixed; top: 0; left: 0;
+      width: 320px; max-width: 85vw;
+      /* Match .app/.main: track dynamic viewport so the sidebar bottom stays
+         on-screen instead of slipping behind the URL bar */
+      height: 100vh;
+      height: 100svh;
+      height: 100dvh;
+      padding-top: env(safe-area-inset-top, 0);
+      padding-bottom: env(safe-area-inset-bottom, 0);
+      box-sizing: border-box;
+      z-index: 199;
+      transform: translateX(-100%);
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-right: 1px solid var(--line);
+    }
+    .app.sidebar-open .sidebar {
+      transform: translateX(0);
+      box-shadow: 0 0 40px rgba(26,22,18,0.3);
+    }
+    .app.sidebar-open .sidebar-backdrop { display: block; }
+
+    /* Tighter spacing on mobile */
+    .topbar { padding: 10px 12px; }
+    .topbar-title { font-size: 14px; max-width: 50%; }
+    .messages { padding: 16px 12px 10px; }
+    .composer { padding-left: 8px; padding-right: 8px; }
+    .composer-inner { padding: 0; }
+    .composer-hint { font-size: 11px; }
+    /* The auth modal also benefits from a little breathing room */
+    .auth-card { padding: 24px 20px; }
+  }
+
+  .sidebar { background: var(--bg-elev); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  .brand { padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
+  .brand h1 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 24px;
+    letter-spacing: -0.02em; line-height: 1; }
+  .brand h1 em { font-style: italic; color: var(--accent); font-weight: 400; }
+  .brand p { font-size: 11.5px; color: var(--ink-mute); margin-top: 5px; letter-spacing: 0.02em; }
+
+  .panel { padding: 16px 24px; border-bottom: 1px solid var(--line); }
+  .panel-label {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--ink-mute);
+  }
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; color: var(--ink-soft); margin-bottom: 5px;
+  }
+  .field label .val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--accent); }
+  input[type="text"], input[type="password"], input[type="number"], select, textarea {
+    width: 100%; background: var(--bg);
+    border: 1px solid var(--line); color: var(--ink);
+    padding: 7px 10px; border-radius: 4px;
+    font-family: inherit; font-size: 13px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent); background: var(--bg-elev);
+  }
+  textarea { resize: vertical; min-height: 56px; line-height: 1.4; font-family: inherit; }
+  input[type="range"] {
+    width: 100%; -webkit-appearance: none; appearance: none;
+    height: 2px; background: var(--line); border-radius: 1px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; background: var(--accent);
+    border-radius: 50%; cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 13px; height: 13px; background: var(--accent);
+    border-radius: 50%; cursor: pointer; border: none;
+  }
+  .toggle-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--ink-soft); cursor: pointer; user-select: none;
+  }
+  .toggle {
+    position: relative; width: 30px; height: 17px;
+    background: var(--line); border-radius: 9px; transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 13px; height: 13px; background: var(--bg-elev);
+    border-radius: 50%; transition: transform 0.2s;
+  }
+  input[type="checkbox"] { display: none; }
+  input[type="checkbox"]:checked + .toggle { background: var(--accent); }
+  input[type="checkbox"]:checked + .toggle::after { transform: translateX(13px); }
+
+  .key-status {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 11px; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 4px;
+    font-size: 12.5px; color: var(--ink-soft);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .key-status .dot { width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ink-mute); flex-shrink: 0; }
+  .key-status.loading .dot { background: var(--amber); animation: pulse 1.2s infinite; }
+  .key-status.ok .dot { background: var(--green); }
+  .key-status.err .dot { background: var(--accent); }
+  .key-status .key-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @keyframes pulse { 0%,100%{opacity:.4;} 50%{opacity:1;} }
+
+  .health-summary { font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    margin-top: 8px; color: var(--ink-mute); line-height: 1.6; }
+  .health-summary .h-ok { color: var(--green); }
+  .health-summary .h-err { color: var(--red); }
+
+  .tool-list { font-size: 12px; color: var(--ink-soft); margin-top: 8px; line-height: 1.6; }
+  .tool-list .tool-item { padding: 4px 0; border-top: 1px dashed var(--line); }
+  .tool-list .tool-item:first-child { border-top: none; }
+  .tool-list .tool-name { font-family: 'JetBrains Mono', monospace;
+    color: var(--accent); font-size: 11px; font-weight: 500; }
+  .tool-list .tool-desc { font-size: 11px; color: var(--ink-mute); margin-top: 2px; }
+
+  .conv-panel { padding: 14px 0 8px; border-bottom: 1px solid var(--line); }
+  .conv-head { padding: 0 24px 10px;
+    display: flex; justify-content: space-between; align-items: center; }
+  .new-chat-btn {
+    background: var(--ink); color: var(--bg-elev); border: none;
+    padding: 5px 12px; font-family: inherit; font-size: 12px; font-weight: 500;
+    border-radius: 4px; cursor: pointer; transition: background 0.15s;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .new-chat-btn:hover { background: var(--accent); }
+  .new-chat-btn .plus { font-size: 14px; line-height: 1; }
+  .conv-list { max-height: 240px; overflow-y: auto; padding: 0 8px; }
+  .conv-empty { padding: 12px 16px; font-size: 12px; color: var(--ink-mute);
+    font-style: italic; font-family: 'Fraunces', serif; text-align: center; }
+  .conv-item {
+    display: flex; align-items: center; padding: 8px 12px 8px 16px;
+    border-radius: 4px; cursor: pointer;
+    transition: background 0.12s; margin-bottom: 1px;
+  }
+  .conv-item:hover { background: var(--bg-soft); }
+  .conv-item.active { background: var(--rose); }
+  .conv-item.active .conv-title { color: var(--accent); font-weight: 500; }
+  .conv-body { flex: 1; min-width: 0; }
+  .conv-title { font-size: 13px; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-meta { font-size: 10.5px; color: var(--ink-mute);
+    font-family: 'JetBrains Mono', monospace; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-del {
+    background: transparent; border: none; color: var(--ink-mute);
+    font-size: 14px; cursor: pointer; padding: 4px 6px; border-radius: 3px;
+    opacity: 0; transition: opacity 0.12s, color 0.12s, background 0.12s; line-height: 1;
+  }
+  .conv-item:hover .conv-del { opacity: 1; }
+  .conv-del:hover { color: var(--accent); background: rgba(107,31,42,0.08); }
+
+  .main {
+    display: flex; flex-direction: column;
+    /* Same dvh strategy as .app — keeps composer in the visible area when
+       the mobile browser URL bar appears */
+    height: 100vh;
+    height: 100svh;
+    height: 100dvh;
+    overflow: hidden; min-width: 0;
+  }
+  .topbar {
+    padding: 14px 32px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg-elev);
+  }
+  .topbar-title {
+    font-family: 'Fraunces', serif;
+    font-size: 16px; font-weight: 500; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;
+  }
+  .topbar-title em { font-style: italic; color: var(--ink-mute); font-weight: 400; }
+  .model-tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-mute);
+    padding: 4px 10px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .messages { flex: 1; overflow-y: auto; padding: 28px 32px 16px; scroll-behavior: smooth; }
+  .messages-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .empty-state { text-align: center; padding: 80px 20px; color: var(--ink-mute); }
+  .empty-state .ornament { font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 56px; color: var(--accent); line-height: 1; margin-bottom: 16px; }
+  .empty-state h2 { font-family: 'Fraunces', serif; font-weight: 400;
+    font-size: 22px; color: var(--ink); margin-bottom: 8px; }
+  .empty-state p { font-size: 14px; }
+
+  .msg { display: flex; flex-direction: column; max-width: 100%; animation: rise 0.3s ease; }
+  @keyframes rise { from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .msg-role { font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 12px; color: var(--ink-mute);
+    margin-bottom: 6px; letter-spacing: 0.04em; }
+  .msg.user { align-items: flex-end; }
+  .bubble {
+    padding: 12px 16px; border-radius: 14px; max-width: 85%;
+    word-wrap: break-word; font-size: 14.5px; line-height: 1.6; position: relative;
+  }
+  .msg.user .bubble {
+    background: var(--user-bubble); color: var(--user-text);
+    border-radius: 14px 14px 2px 14px;
+    padding-right: 44px;  /* room for floating copy button */
+  }
+  .msg.user .bubble .user-text { white-space: pre-wrap; }
+  .msg.assistant .bubble {
+    background: var(--bot-bubble); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 2px 14px 14px 14px;
+    box-shadow: var(--shadow); padding-right: 44px;
+  }
+  .bubble p { margin-bottom: 0.6em; }
+  .bubble p:last-child { margin-bottom: 0; }
+  .bubble pre {
+    background: var(--code-bg); color: var(--code-text);
+    padding: 12px 14px; border-radius: 6px;
+    overflow-x: auto; margin: 8px 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.5;
+  }
+  .bubble code {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.88em;
+    background: rgba(107,31,42,0.08); color: var(--accent);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .bubble pre code { background: transparent; color: inherit; padding: 0; }
+  /* KaTeX-rendered math. Display math gets centered with vertical breathing
+     room; inline math gets a slight nudge so descenders don't collide with
+     the next line. KaTeX's own CSS handles the actual glyph fonts. */
+  .bubble .katex { font-size: 1.05em; }
+  .bubble .katex-display {
+    margin: 0.6em 0;
+    overflow-x: auto;       /* long equations scroll instead of breaking layout */
+    overflow-y: hidden;
+    padding: 2px 0;
+  }
+  /* Fallback when KaTeX hasn't loaded yet — show source clearly */
+  .bubble .math-fallback {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
+    background: rgba(107,31,42,0.06); color: var(--ink-mute);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  /* Render-error state — same shape as fallback but with red accent */
+  .bubble .math-error {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
+    background: rgba(180,40,40,0.08); color: var(--red, #b22);
+    padding: 1px 5px; border-radius: 3px; cursor: help;
+  }
+  .bubble ul, .bubble ol { margin-left: 22px; margin-bottom: 0.6em; }
+  .bubble blockquote { border-left: 2px solid var(--accent);
+    padding-left: 12px; color: var(--ink-soft); font-style: italic; margin: 6px 0; }
+  .bubble a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .bubble h1, .bubble h2, .bubble h3 {
+    font-family: 'Fraunces', serif; font-weight: 500;
+    margin: 0.5em 0 0.3em; line-height: 1.25;
+  }
+  .bubble table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+  .bubble th, .bubble td { border: 1px solid var(--line); padding: 6px 10px; }
+  .bubble th { background: var(--rose); }
+
+  .msg-image {
+    max-width: 380px; max-height: 380px; border-radius: 8px;
+    display: block; margin-top: 8px; border: 1px solid var(--line);
+  }
+  .msg.user .msg-image { margin-left: auto; max-width: 240px; max-height: 240px;
+    border-color: rgba(255,255,255,0.1); }
+  .msg-file-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; margin: 4px 0 0 0;
+    background: rgba(251,247,239,0.12); color: var(--user-text);
+    border-radius: 4px; font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .msg-file-chip .ico { opacity: 0.7; }
+
+  .routing-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--ink-mute);
+    margin-bottom: 8px; letter-spacing: 0.02em;
+    border-bottom: 1px dashed var(--line); padding-bottom: 6px; line-height: 1.7;
+  }
+  .routing-label .arrow { color: var(--accent-soft); margin-right: 4px; }
+  .routing-label .cat { color: var(--accent); font-weight: 500; }
+  .routing-label .reason { color: var(--ink-mute); font-style: italic; font-family: 'Fraunces', serif; }
+  .routing-label .req-id { color: var(--ink-mute); font-size: 9.5px; opacity: 0.6; }
+  .routing-label .conf { font-size: 9.5px; padding: 1px 4px; border-radius: 2px;
+    background: var(--bg-soft); color: var(--ink-soft); margin-left: 4px; }
+
+  .ledger-block, .toollog-block { margin-top: 4px; padding-top: 4px;
+    font-size: 10px; color: var(--ink-mute); }
+  .ledger-block summary, .toollog-block summary {
+    cursor: pointer; user-select: none;
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 10px; letter-spacing: 0.06em; color: var(--accent-soft); list-style: none;
+  }
+  .ledger-block summary::-webkit-details-marker,
+  .toollog-block summary::-webkit-details-marker { display: none; }
+  .ledger-block summary::before,
+  .toollog-block summary::before { content: '▸ '; }
+  .ledger-block[open] summary::before,
+  .toollog-block[open] summary::before { content: '▾ '; }
+  .ledger-block .entry, .toollog-block .entry {
+    padding: 3px 0 3px 14px; border-left: 1px solid var(--line);
+    margin-top: 3px; font-family: 'JetBrains Mono', monospace; word-break: break-all;
+  }
+  .ledger-block .recipe, .toollog-block .tool-name { color: var(--accent); }
+  .ledger-block .state-succeeded { color: var(--green); }
+  .ledger-block .state-failed,
+  .toollog-block .state-failed { color: var(--red); }
+  .ledger-block .state-escalated { color: var(--red); font-weight: 500; }
+  .ledger-block .state-started { color: var(--amber); }
+  .toollog-block .state-ok { color: var(--green); }
+  /* Per-call args dump (collapsed by default). Kept compact and monospace
+     so it doesn't overwhelm the rest of the bubble. */
+  .toollog-args { margin: 2px 0 2px 14px; }
+  .toollog-args summary {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 10px; color: var(--ink-mute); cursor: pointer; user-select: none;
+    list-style: none;
+  }
+  .toollog-args summary::-webkit-details-marker { display: none; }
+  .toollog-args summary::before { content: '▸ '; }
+  .toollog-args[open] summary::before { content: '▾ '; }
+  .toollog-args pre {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+    color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 8px; margin: 4px 0 0 0;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow: auto;
+  }
+
+  /* ============= Compaction block ============= */
+  /* The transient running state (during /v1/compact LLM call) shows a row of
+     ➹ glyphs that fly off in sequence, leaving 2 behind. The done state is
+     a collapsed details element with the same logo treatment. */
+  .compact-block {
+    margin: 8px 0;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    color: var(--ink-mute);
+    font-size: 12px;
+  }
+  .compact-block.compact-running {
+    display: flex; align-items: center; gap: 14px;
+    /* Subtle pulse to indicate work in progress */
+    animation: compact-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes compact-pulse {
+    0%, 100% { background: var(--bg-soft); }
+    50%      { background: var(--line-soft); }
+  }
+  .compact-quiver {
+    display: inline-flex; gap: 4px; min-width: 90px;
+    font-size: 18px; color: var(--accent); line-height: 1;
+  }
+  /* Each arrow flies off in sequence. The last 2 stay (no animation applied).
+     We use --i (custom property set inline) to stagger the start times.
+     With arrowCount=N, indices 0..N-3 fly off, N-2 and N-1 stay.
+     Implementation trick: animate ALL arrows but make the last 2 use a
+     no-op keyframe. We do that by checking nth-last-child in a separate rule. */
+  .compact-quiver .arrow {
+    display: inline-block;
+    animation: arrow-fly 2.4s linear infinite;
+    animation-delay: calc(var(--i, 0) * 0.18s);
+  }
+  /* Last 2 arrows: stay put (no fly-off) */
+  .compact-quiver .arrow:nth-last-child(-n+2) {
+    animation: arrow-bob 2.4s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 0.18s);
+  }
+  @keyframes arrow-fly {
+    0%        { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+    35%       { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+    55%       { transform: translate(120px, -22px) rotate(35deg); opacity: 0; }
+    /* Hold invisible until cycle restarts */
+    100%      { transform: translate(120px, -22px) rotate(35deg); opacity: 0; }
+  }
+  @keyframes arrow-bob {
+    0%, 100%  { transform: translate(0, 0); }
+    50%       { transform: translate(0, -3px); }
+  }
+  .compact-label {
+    flex: 1;
+    font-family: 'Fraunces', serif; font-style: italic;
+  }
+
+  /* Done state: collapsed details with summary + originals */
+  .compact-block.compact-done { padding: 0; background: transparent; border: none; }
+  .compact-details { background: var(--bg-soft); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; }
+  .compact-details summary {
+    cursor: pointer; user-select: none; list-style: none;
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Fraunces', serif; font-style: italic; font-size: 12px;
+    color: var(--ink-mute);
+  }
+  .compact-details summary::-webkit-details-marker { display: none; }
+  .compact-arrows {
+    color: var(--accent); font-style: normal; font-size: 16px; letter-spacing: 2px;
+  }
+  .compact-text { flex: 1; }
+  .compact-toggle { color: var(--ink-mute); font-style: normal; }
+  .compact-summary {
+    margin-top: 12px; padding: 10px 12px;
+    background: var(--bg-elev); border-radius: 6px;
+    font-size: 13px; color: var(--ink); line-height: 1.5;
+    border-left: 2px solid var(--accent);
+  }
+  .compact-divider {
+    margin: 14px 0 8px 0; font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 11px; color: var(--ink-mute); text-align: center;
+    letter-spacing: 0.08em;
+  }
+  .compact-originals {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .compact-original-msg {
+    padding: 6px 10px; border-radius: 4px; background: var(--bg-elev);
+    font-size: 12px; line-height: 1.45;
+  }
+  .compact-original-role {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 10px; color: var(--ink-mute); margin-bottom: 2px;
+  }
+  .compact-original-user .compact-original-body {
+    color: var(--ink); white-space: pre-wrap;
+  }
+  .compact-original-assistant .compact-original-body { color: var(--ink); }
+  /* Constrain originals so a giant 218K-token PDF doesn't blow up the UI */
+  .compact-original-body { max-height: 180px; overflow-y: auto; }
+
+  .fb-badge { background: var(--accent); color: var(--bg-elev);
+    padding: 1px 6px; border-radius: 3px; font-size: 9.5px; margin-left: 8px;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; }
+  .tools-badge { background: #4a7c4f; color: var(--bg-elev);
+    padding: 1px 6px; border-radius: 3px; font-size: 9.5px; margin-left: 6px;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; }
+  .notes-amber { color: var(--amber); font-style: italic; font-family: 'Fraunces', serif; }
+
+  .tts-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-mute); width: 26px; height: 26px;
+    border-radius: 50%; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; transition: all 0.15s;
+  }
+  .tts-btn:hover { background: var(--accent); color: var(--bg-elev); border-color: var(--accent); }
+  .tts-btn svg { width: 12px; height: 12px; }
+  .tts-btn[data-state="playing"] {
+    background: var(--accent); color: var(--bg-elev); border-color: var(--accent);
+  }
+
+  /* Copy button — shares the floating-action style of .tts-btn but sits
+     to its left when both are present. For user bubbles (no TTS button)
+     it occupies the same top-right slot as .tts-btn would. */
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-mute); width: 26px; height: 26px;
+    border-radius: 50%; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; transition: all 0.15s;
+    opacity: 0;  /* hidden by default; revealed on hover for low-noise UX */
+  }
+  .bubble:hover .copy-btn,
+  .copy-btn:focus,
+  .copy-btn.copied { opacity: 1; }
+  .copy-btn:hover { background: var(--accent); color: var(--bg-elev); border-color: var(--accent); }
+  .copy-btn svg { width: 12px; height: 12px; }
+  /* Brief flash to confirm copy succeeded */
+  .copy-btn.copied {
+    background: var(--accent); color: var(--bg-elev); border-color: var(--accent);
+  }
+  /* When TTS button is present (assistant bubbles), shift copy button left */
+  .bubble:has(.tts-btn) .copy-btn { right: 44px; }
+  /* On touch devices hover doesn't fire — always show */
+  @media (hover: none) {
+    .copy-btn { opacity: 1; }
+  }
+
+  .thinking-block {
+    margin-bottom: 12px; border-left: 2px solid var(--accent-soft);
+    padding: 6px 0 6px 12px; color: var(--ink-mute);
+    font-size: 13px; line-height: 1.55;
+  }
+  .thinking-block summary {
+    cursor: pointer; list-style: none; user-select: none;
+    display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+  }
+  .thinking-block summary::-webkit-details-marker { display: none; }
+  .think-label { font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent-soft); }
+  .think-label::before { content: '▸ '; }
+  .thinking-block[open] .think-label::before { content: '▾ '; }
+  .lang-tabs { display: inline-flex; gap: 2px; background: var(--bg-soft);
+    border-radius: 4px; padding: 2px; margin-left: auto; }
+  .lang-tab {
+    background: transparent; border: none;
+    padding: 2px 8px; font-size: 10.5px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--ink-mute); cursor: pointer;
+    border-radius: 3px; transition: background 0.12s, color 0.12s;
+  }
+  .lang-tab.active { background: var(--bg-elev); color: var(--accent); font-weight: 500; }
+  .lang-tab:hover:not(.active) { color: var(--ink-soft); }
+  .think-body {
+    white-space: pre-wrap; word-wrap: break-word;
+    font-style: italic;
+    max-height: 360px; overflow-y: auto; padding-right: 6px;
+  }
+  .think-translating {
+    display: inline-flex; gap: 3px; align-items: center;
+    margin-left: 6px; font-size: 10px; color: var(--accent-soft);
+    font-family: 'Fraunces', serif; font-style: italic;
+    text-transform: lowercase; letter-spacing: 0.04em;
+  }
+  .think-translating::before { content: '◦'; animation: spin 1.4s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .content-translation {
+    margin-top: 10px; padding-top: 8px;
+    border-top: 1px dashed var(--rule);
+    font-size: 0.94em; color: var(--ink-soft);
+  }
+  .content-translation-label {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 10.5px; color: var(--accent-soft); letter-spacing: 0.06em;
+    text-transform: lowercase; margin-bottom: 4px;
+  }
+  .content-translation-body { white-space: pre-wrap; word-wrap: break-word; }
+
+  .typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+  .typing span { width: 6px; height: 6px; background: var(--ink-mute);
+    border-radius: 50%; animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:.2;} 40%{opacity:1;} }
+  .tool-running {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; margin-bottom: 8px;
+    background: var(--bg-soft); border-radius: 6px;
+    font-size: 12px; color: var(--ink-soft);
+    font-family: 'Fraunces', serif; font-style: italic;
+  }
+  .tool-running::before {
+    content: '◦'; animation: spin 1.4s linear infinite; color: var(--accent-soft);
+  }
+
+  .composer { border-top: 1px solid var(--line); background: var(--bg-elev);
+    padding: 14px 32px 18px; }
+  .composer-inner { max-width: 760px; margin: 0 auto; }
+  .composer-attachments {
+    display: none; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;
+    padding: 8px; background: var(--bg-soft); border-radius: 6px;
+  }
+  .composer-attachments.has-items { display: flex; }
+  .att-item {
+    position: relative; display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px 6px 6px;
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: 4px; max-width: 280px;
+  }
+  .att-item.image { padding: 0; }
+  .att-item.image img {
+    width: 64px; height: 64px;
+    object-fit: cover; border-radius: 4px; display: block;
+  }
+  .att-item .att-icon { width: 20px; height: 20px;
+    color: var(--ink-mute); flex-shrink: 0; }
+  .att-item .att-meta { min-width: 0; }
+  .att-item .att-name {
+    font-size: 12px; color: var(--ink); font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 200px; font-family: 'JetBrains Mono', monospace;
+  }
+  .att-item .att-info { font-size: 10px; color: var(--ink-mute); margin-top: 1px; }
+  .att-del {
+    position: absolute; top: -6px; right: -6px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--ink); color: var(--bg-elev);
+    border: 1px solid var(--bg-elev);
+    font-size: 11px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .att-del:hover { background: var(--accent); }
+  .att-busy {
+    position: absolute; inset: 0; background: rgba(251,247,239,0.7);
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px; font-size: 10px; color: var(--ink-mute);
+    font-family: 'Fraunces', serif; font-style: italic;
+  }
+
+  .composer-box {
+    display: flex; align-items: flex-end; gap: 8px;
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px;
+    transition: border-color 0.15s;
+  }
+  .composer-box:focus-within { border-color: var(--accent); }
+  .attach-btn {
+    background: transparent; border: none;
+    color: var(--ink-mute); cursor: pointer;
+    padding: 6px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.15s, background 0.15s; flex-shrink: 0;
+  }
+  .attach-btn:hover { color: var(--accent); background: var(--bg-soft); }
+  .attach-btn svg { width: 18px; height: 18px; }
+  .composer textarea {
+    flex: 1; background: transparent; border: none; outline: none; resize: none;
+    font-family: inherit; font-size: 14.5px; color: var(--ink);
+    padding: 6px 0; max-height: 200px; line-height: 1.5;
+  }
+  .send-btn {
+    background: var(--accent); color: #fbf7ef; border: none;
+    padding: 8px 18px; border-radius: 6px; font-family: inherit;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: background 0.15s, opacity 0.15s; flex-shrink: 0;
+  }
+  .send-btn:hover { background: var(--ink); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Stop mode: same button, different visual identity. Stays clickable so
+     the user can abort the in-flight stream. */
+  .send-btn.stop-mode {
+    background: var(--ink-mute);
+    color: #fbf7ef;
+  }
+  .send-btn.stop-mode:hover { background: var(--ink); }
+  .composer-hint {
+    font-size: 11px; color: var(--ink-mute); margin-top: 8px; text-align: center;
+    font-family: 'Fraunces', serif; font-style: italic;
+  }
+  .error-banner {
+    background: var(--rose); border: 1px solid var(--accent-soft);
+    color: var(--accent); padding: 10px 14px;
+    border-radius: 6px; font-size: 13px; margin-bottom: 12px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-mute); }
+  /* ----- Auth: user info box in sidebar ----- */
+  .user-box {
+    margin: 0 16px 12px; padding: 10px 12px;
+    background: var(--bg-soft); border: 1px solid var(--line);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; font-size: 13px;
+  }
+  .user-box .uname { color: var(--ink); font-weight: 600; }
+  .user-box .uname .badge {
+    display: inline-block; margin-left: 6px; padding: 1px 6px;
+    background: var(--accent); color: var(--bg-elev);
+    border-radius: 6px; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.5px; vertical-align: middle;
+  }
+  .user-box .logout-btn {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-mute); padding: 4px 10px; border-radius: 6px;
+    font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .user-box .logout-btn:hover { color: var(--accent); border-color: var(--accent-soft); }
+
+  /* ----- Auth: login/register modal ----- */
+  .auth-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 100vh;
+    height: 100svh;
+    height: 100dvh;
+    background: rgba(26,22,18,0.55);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+  }
+  .auth-overlay.hidden { display: none; }
+  .auth-card {
+    background: var(--bg-elev); border: 1px solid var(--line);
+    border-radius: 14px; padding: 32px 28px;
+    width: 360px; max-width: calc(100vw - 32px);
+    box-shadow: var(--shadow);
+  }
+  .auth-card h2 {
+    margin: 0 0 4px; font-size: 22px; color: var(--ink);
+    font-weight: 700; letter-spacing: -0.01em;
+  }
+  .auth-card .auth-sub {
+    color: var(--ink-mute); font-size: 13px; margin-bottom: 22px;
+  }
+  .auth-tabs {
+    display: flex; gap: 4px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .auth-tab {
+    flex: 1; padding: 8px 0; background: transparent; border: none;
+    color: var(--ink-mute); font: inherit; font-size: 13px;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .auth-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .auth-field { margin-bottom: 12px; }
+  .auth-field label {
+    display: block; margin-bottom: 4px; font-size: 12px;
+    color: var(--ink-soft); font-weight: 500;
+  }
+  .auth-field input {
+    width: 100%; padding: 9px 12px; font: inherit; font-size: 14px;
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; color: var(--ink);
+  }
+  .auth-field input:focus { outline: none; border-color: var(--accent-soft); }
+  .auth-submit {
+    width: 100%; padding: 10px; margin-top: 8px;
+    background: var(--accent); color: var(--bg-elev);
+    border: none; border-radius: 8px; font: inherit; font-size: 14px;
+    font-weight: 600; cursor: pointer;
+  }
+  .auth-submit:hover { background: #5a1a24; }
+  .auth-submit:disabled { background: var(--ink-mute); cursor: wait; }
+  .auth-error {
+    margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+    background: var(--rose); color: var(--accent); font-size: 12px;
+    display: none;
+  }
+  .auth-error.show { display: block; }
+  .auth-hint {
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+    font-size: 11px; color: var(--ink-mute); line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <h1>NIM <em>INI</em></h1>
+    </div>
+
+    <div class="user-box" id="userBox" style="display: none;">
+      <span class="uname">
+        <span id="userName">—</span><span id="userBadge"></span>
+      </span>
+      <button class="logout-btn" id="changeKeyBtn" type="button"
+              style="margin-right: 4px;" title="Change NVIDIA API key">Key</button>
+      <button class="logout-btn" id="logoutBtn" type="button">Log out</button>
+    </div>
+
+    <div class="conv-panel">
+      <div class="conv-head">
+        <span class="panel-label">Conversations</span>
+        <button class="new-chat-btn" id="newChatBtn"><span class="plus">＋</span> New chat</button>
+      </div>
+      <div class="conv-list" id="convList">
+        <div class="conv-empty">No conversations yet</div>
+      </div>
+    </div>
+
+    <div class="sidebar-scroll">
+      <div class="panel">
+        <span class="panel-label">Proxy</span>
+        <div class="field" style="margin-top: 10px;">
+          <div class="key-status" id="keyStatus">
+            <span class="dot"></span>
+            <span class="key-msg" id="keyMsg">Checking server...</span>
+          </div>
+          <div class="health-summary" id="healthSummary"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="panel-label">Model</span>
+        <div class="field" style="margin-top: 10px;">
+          <select id="model">
+            <option value="auto" selected>Auto · auto-routing</option>
+            <option disabled>──────────</option>
+            <option value="meta/llama-4-maverick-17b-128e-instruct">meta/llama-4-maverick-17b-128e-instruct</option>
+            <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct</option>
+            <option value="deepseek-ai/deepseek-v4-pro">deepseek-ai/deepseek-v4-pro</option>
+            <option value="deepseek-ai/deepseek-v4-flash">deepseek-ai/deepseek-v4-flash</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="toggle-row">
+            <input type="checkbox" id="streamToggle" checked>
+            <span class="toggle"></span><span>Streaming</span>
+          </label>
+        </div>
+        <div class="field" id="reasoningField">
+          <label>Reasoning <span class="val" style="font-style:italic; color:var(--ink-mute);">deepseek-v4</span></label>
+          <select id="reasoningEffort">
+            <option value="off">Off · faster</option>
+            <option value="high" selected>High · reasoning on</option>
+            <option value="max">Max · deepest reasoning</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="panel-label">Tools</span>
+        <div class="field" style="margin-top: 10px;">
+          <label class="toggle-row">
+            <input type="checkbox" id="toolsToggle" checked>
+            <span class="toggle"></span><span>Enable tools</span>
+          </label>
+          <div class="tool-list" id="toolList"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="panel-label">Translation</span>
+        <div class="field" style="margin-top: 10px;">
+          <label class="toggle-row">
+            <input type="checkbox" id="translateToggle" checked>
+            <span class="toggle"></span><span>Auto-translate thinking</span>
+          </label>
+        </div>
+        <div class="field">
+          <label class="toggle-row">
+            <input type="checkbox" id="translateResponseToggle">
+            <span class="toggle"></span><span>Auto-translate responses</span>
+          </label>
+        </div>
+        <div class="field">
+          <label>Target language</label>
+          <select id="translateTargetLang">
+            <option value="English" selected>English</option>
+            <option value="Korean">Korean (한국어)</option>
+            <option value="Japanese">Japanese (日本語)</option>
+            <option value="Chinese">Chinese (中文)</option>
+            <option value="Spanish">Spanish (Español)</option>
+            <option value="French">French (Français)</option>
+            <option value="German">German (Deutsch)</option>
+            <option value="Vietnamese">Vietnamese (Tiếng Việt)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Translation model</label>
+          <select id="translateModel">
+            <option value="meta/llama-3.3-70b-instruct" selected>meta/llama-3.3-70b-instruct</option>
+            <option value="meta/llama-4-maverick-17b-128e-instruct">meta/llama-4-maverick-17b-128e-instruct</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="panel-label">Speech</span>
+        <div class="field" style="margin-top: 10px;">
+          <label>Voice <span class="val" id="ttsStatus" style="font-size:10px;opacity:0.6;"></span></label>
+          <select id="ttsVoice"><option value="">Loading…</option></select>
+        </div>
+        <div class="field">
+          <label>Reading speed <span class="val" id="ttsRateVal">1.00</span></label>
+          <input type="range" id="ttsRate" min="0.5" max="2.0" step="0.05" value="1.0">
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="panel-label">System Prompt</span>
+        <div class="field" style="margin-top: 10px;">
+          <textarea id="systemPrompt" placeholder="(optional) system prompt"></textarea>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="panel-label">Sampling</span>
+        <div class="field" style="margin-top: 10px;">
+          <label>Temperature <span class="val" id="tempVal">1.00</span></label>
+          <input type="range" id="temperature" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <div class="field">
+          <label>Top-p <span class="val" id="topPVal">1.00</span></label>
+          <input type="range" id="topP" min="0" max="1" step="0.01" value="1.0">
+        </div>
+        <div class="field">
+          <label>Max Tokens <span class="val" id="maxTokVal">4096</span></label>
+          <input type="range" id="maxTokens" min="64" max="8192" step="64" value="4096">
+        </div>
+        <div class="field">
+          <label>Frequency Penalty <span class="val" id="freqVal">0.00</span></label>
+          <input type="range" id="freqPen" min="-2" max="2" step="0.1" value="0">
+        </div>
+        <div class="field">
+          <label>Presence Penalty <span class="val" id="presVal">0.00</span></label>
+          <input type="range" id="presPen" min="-2" max="2" step="0.1" value="0">
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <button class="sidebar-toggle" id="sidebarToggle" type="button"
+              aria-label="Toggle sidebar" title="Sidebar (Ctrl+B)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <div class="topbar-title" id="topbarTitle"><em>New chat</em></div>
+      <div class="topbar-actions">
+        <span class="model-tag" id="modelTag">auto</span>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="messages-inner" id="messagesInner">
+        <div class="empty-state">
+          <div class="ornament">➹</div>
+          <h2>Start a conversation</h2>
+          <p>In Auto mode the input is analyzed and a model is picked automatically.<br>
+             With Tools enabled, the model can call image generation/edit, embeddings, and symbolic math on its own.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <div id="errorContainer"></div>
+        <div class="composer-attachments" id="composerAttachments"></div>
+        <div class="composer-box">
+          <input type="file" id="attachInput" multiple style="display:none"
+                 accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/*,.md,.tex,.bib,.json,.yaml,.yml,.toml,.py,.js,.ts,.tsx,.jsx,.rs,.go,.java,.c,.cpp,.h,.hpp,.cs,.rb,.php,.pl,.lua,.sh,.bash,.html,.css,.scss,.xml,.svg,.csv,.tsv,.log,.ini,.cfg,.conf,.env,.sql,.r,.jl,.m,.f,.f90,.ipynb,.diff,.patch">
+          <button class="attach-btn" id="attachBtn" title="Attach file (image / PDF / text / code)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <textarea id="userInput" rows="1" placeholder="Type a message..."></textarea>
+          <button class="send-btn" id="sendBtn">Send</button>
+        </div>
+        <div class="composer-hint">/help for commands</div>
+      </div>
+    </div>
+  </main>
+  <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
+</div>
+
+<div class="auth-overlay hidden" id="authOverlay">
+  <div class="auth-card">
+    <h2>NIM <em style="color: var(--accent); font-style: italic;">INI</em></h2>
+    <div class="auth-sub">Log in or create a new account.</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" type="button">Log in</button>
+      <button class="auth-tab" id="tabRegister" type="button">Sign up</button>
+    </div>
+
+    <div class="auth-field">
+      <label for="authUsername">Username</label>
+      <input type="text" id="authUsername" autocomplete="username"
+             spellcheck="false" autocapitalize="off" />
+    </div>
+    <div class="auth-field">
+      <label for="authPassword">Password</label>
+      <input type="password" id="authPassword" autocomplete="current-password" />
+    </div>
+    <div class="auth-field" id="regTokenField" style="display: none;">
+      <label for="authRegToken">Registration token <span style="color: var(--ink-mute); font-weight: 400;">(optional; required if the server enabled it)</span></label>
+      <input type="text" id="authRegToken" spellcheck="false" autocapitalize="off" />
+    </div>
+    <div class="auth-field" id="apiKeyField" style="display: none;">
+      <label for="authApiKey">NVIDIA API key <span style="color: var(--accent); font-weight: 600;">*</span></label>
+      <input type="password" id="authApiKey" spellcheck="false" autocapitalize="off"
+             autocomplete="off" placeholder="nvapi-..." />
+      <div style="font-size: 0.85em; color: var(--ink-mute); margin-top: 6px;">
+        Get a free key at <a href="https://build.nvidia.com" target="_blank" rel="noopener"
+                       style="color: var(--accent);">build.nvidia.com</a>.
+        The key is validated against NVIDIA on registration and used only for your own calls.
+      </div>
+    </div>
+
+    <button class="auth-submit" id="authSubmit" type="button">Log in</button>
+    <div class="auth-error" id="authError"></div>
+
+    <div class="auth-hint">
+      Session cookies are valid for 30 days. The first registered user becomes admin and inherits any pre-existing conversations.
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ================= Auth-aware fetch wrapper =================
+// Intercepts every fetch() so that any 401 from a protected endpoint
+// pops the login modal instead of silently failing. Auth endpoints
+// themselves bypass this so showAuthError() can do its own thing.
+const _origFetch = window.fetch.bind(window);
+window.fetch = async function(input, init) {
+  const url = (typeof input === 'string') ? input : input.url;
+  const r = await _origFetch(input, init);
+  const isAuthEndpoint = url.includes('/v1/auth/');
+  if (r.status === 401 && !isAuthEndpoint) {
+    if (typeof showAuthOverlay === 'function') {
+      // Defer so the caller's .then/await can settle before UI shifts
+      setTimeout(() => {
+        if (typeof authState !== 'undefined') authState.user = null;
+        if (typeof renderUserBox === 'function') renderUserBox();
+        showAuthOverlay('login');
+      }, 0);
+    }
+  }
+  return r;
+};
+
+// ================= Sidebar toggle (desktop collapse / mobile slide-in) =================
+const SIDEBAR_BREAKPOINT_PX = 768;
+const SIDEBAR_LS_KEY = 'nim_sidebar_collapsed';
+let _lastIsMobile = null;
+
+function isMobileViewport() {
+  return window.matchMedia(`(max-width: ${SIDEBAR_BREAKPOINT_PX}px)`).matches;
+}
+
+function setSidebarOpen(open) {
+  const app = document.querySelector('.app');
+  const toggle = document.getElementById('sidebarToggle');
+  if (isMobileViewport()) {
+    app.classList.toggle('sidebar-open', open);
+    app.classList.remove('sidebar-collapsed');
+  } else {
+    app.classList.toggle('sidebar-collapsed', !open);
+    app.classList.remove('sidebar-open');
+    try { localStorage.setItem(SIDEBAR_LS_KEY, open ? '0' : '1'); } catch (e) { /* private mode */ }
+  }
+  if (toggle) toggle.setAttribute('aria-expanded', String(open));
+}
+
+function isSidebarOpen() {
+  const app = document.querySelector('.app');
+  if (isMobileViewport()) return app.classList.contains('sidebar-open');
+  return !app.classList.contains('sidebar-collapsed');
+}
+
+function toggleSidebar() {
+  setSidebarOpen(!isSidebarOpen());
+}
+
+function initSidebarState() {
+  if (isMobileViewport()) {
+    setSidebarOpen(false);  // mobile: always start collapsed
+  } else {
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(SIDEBAR_LS_KEY) === '1'; } catch (e) {}
+    setSidebarOpen(!collapsed);
+  }
+  _lastIsMobile = isMobileViewport();
+}
+
+// Wire up sidebar UI
+document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
+document.getElementById('sidebarBackdrop').addEventListener('click', () => setSidebarOpen(false));
+
+// ESC closes the sidebar on mobile (won't interfere with auth modal — the modal
+// has its own keyhandlers and intercepts before this fires when focused)
+document.addEventListener('keydown', (e) => {
+  // ESC during streaming → abort. Highest priority since the user is most
+  // likely to want to cancel a runaway response. Skip if focus is in an input
+  // (Escape often clears IME composition or autocomplete first).
+  if (e.key === 'Escape' && state.busy && state.abort) {
+    const t = e.target;
+    const inEditable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+    if (!inEditable) {
+      e.preventDefault();
+      try { state.abort.abort(); } catch (err) { /* already aborted */ }
+      return;
+    }
+  }
+  if (e.key === 'Escape' && isMobileViewport() && isSidebarOpen()) {
+    setSidebarOpen(false);
+  }
+  // Ctrl/Cmd+B to toggle on desktop (mirrors common editor shortcut)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'b' && !isMobileViewport()) {
+    // Don't steal the shortcut while typing in an input/textarea
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    toggleSidebar();
+  }
+});
+
+// On viewport crossing the breakpoint, re-initialize so the right mechanism
+// (collapsed-class vs open-class) takes over without leaving stale state
+window.addEventListener('resize', () => {
+  const nowMobile = isMobileViewport();
+  if (_lastIsMobile !== null && nowMobile !== _lastIsMobile) {
+    initSidebarState();
+  }
+});
+
+// On mobile, auto-close the sidebar when the user picks a conversation or
+// taps "New chat" — they want to read messages, not stare at the list.
+// Event delegation here means we don't have to touch the existing per-item
+// handlers attached during renderConvList().
+document.getElementById('convList').addEventListener('click', (e) => {
+  if (!isMobileViewport()) return;
+  if (e.target.closest('.conv-del')) return;  // delete button: don't close
+  if (e.target.closest('.conv-item')) setSidebarOpen(false);
+});
+document.getElementById('newChatBtn').addEventListener('click', () => {
+  if (isMobileViewport()) setTimeout(() => setSidebarOpen(false), 50);
+});
+
+// Initialize state immediately (before bootstrap so the user doesn't see a flash
+// of the sidebar in the wrong state during the auth check)
+initSidebarState();
+
+// ================= State =================
+const state = {
+  conversationId: null,
+  conversations: [],
+  history: [],
+  busy: false,
+  abort: null,
+  proxyOk: false,
+  thinkLang: 'ko',
+  attachments: [],
+  pdfSupported: false,
+  modelHealth: {},
+  toolsAvailable: [],
+};
+let _attCounter = 0;
+const newAttId = () => ++_attCounter;
+
+// ================= DOM =================
+const $ = id => document.getElementById(id);
+const els = {
+  keyStatus: $('keyStatus'), keyMsg: $('keyMsg'), healthSummary: $('healthSummary'),
+  newChatBtn: $('newChatBtn'),
+  convList: $('convList'),
+  topbarTitle: $('topbarTitle'),
+  modelTag: $('modelTag'),
+  model: $('model'),
+  streamToggle: $('streamToggle'),
+  reasoningField: $('reasoningField'),
+  reasoningEffort: $('reasoningEffort'),
+  toolsToggle: $('toolsToggle'),
+  toolList: $('toolList'),
+  translateToggle: $('translateToggle'),
+  translateResponseToggle: $('translateResponseToggle'),
+  translateTargetLang: $('translateTargetLang'),
+  translateModel: $('translateModel'),
+  ttsVoice: $('ttsVoice'),
+  ttsRate: $('ttsRate'), ttsRateVal: $('ttsRateVal'),
+  ttsStatus: $('ttsStatus'),
+  systemPrompt: $('systemPrompt'),
+  temperature: $('temperature'), tempVal: $('tempVal'),
+  topP: $('topP'), topPVal: $('topPVal'),
+  maxTokens: $('maxTokens'), maxTokVal: $('maxTokVal'),
+  freqPen: $('freqPen'), freqVal: $('freqVal'),
+  presPen: $('presPen'), presVal: $('presVal'),
+  messages: $('messages'),
+  messagesInner: $('messagesInner'),
+  errorContainer: $('errorContainer'),
+  userInput: $('userInput'),
+  sendBtn: $('sendBtn'),
+  attachBtn: $('attachBtn'),
+  attachInput: $('attachInput'),
+  composerAttachments: $('composerAttachments'),
+};
+
+// ================= Sliders =================
+const fmt = (el, target, digits) => {
+  const sync = () => target.textContent = parseFloat(el.value).toFixed(digits);
+  el.addEventListener('input', sync); sync();
+};
+fmt(els.temperature, els.tempVal, 2);
+fmt(els.topP, els.topPVal, 2);
+fmt(els.freqPen, els.freqVal, 2);
+fmt(els.presPen, els.presVal, 2);
+fmt(els.ttsRate, els.ttsRateVal, 2);
+els.maxTokens.addEventListener('input', () => els.maxTokVal.textContent = els.maxTokens.value);
+els.maxTokVal.textContent = els.maxTokens.value;
+
+// System prompt persistence — survives reloads. Per-conversation system_prompt
+// from the server (loadConversation) overrides this default when a chat is
+// loaded; this default applies when starting a fresh chat.
+const SYS_PROMPT_LS_KEY = 'nim.systemPrompt';
+try {
+  const saved = localStorage.getItem(SYS_PROMPT_LS_KEY);
+  if (saved !== null) els.systemPrompt.value = saved;
+} catch (e) { /* private mode / disabled storage */ }
+els.systemPrompt.addEventListener('input', () => {
+  try { localStorage.setItem(SYS_PROMPT_LS_KEY, els.systemPrompt.value); }
+  catch (e) { /* ignore */ }
+});
+
+// Translation preferences — survive reloads.
+const TRANS_LS = {
+  thinking:  'nim.translate.thinking',
+  response:  'nim.translate.response',
+  target:    'nim.translate.target',
+  model:     'nim.translate.model',
+};
+try {
+  const t = localStorage.getItem(TRANS_LS.thinking);
+  if (t !== null) els.translateToggle.checked = (t === '1');
+  const r = localStorage.getItem(TRANS_LS.response);
+  if (r !== null) els.translateResponseToggle.checked = (r === '1');
+  const tl = localStorage.getItem(TRANS_LS.target);
+  if (tl && [...els.translateTargetLang.options].some(o => o.value === tl)) {
+    els.translateTargetLang.value = tl;
+  }
+  const tm = localStorage.getItem(TRANS_LS.model);
+  if (tm && [...els.translateModel.options].some(o => o.value === tm)) {
+    els.translateModel.value = tm;
+  }
+} catch (e) { /* private mode */ }
+els.translateToggle.addEventListener('change', () => {
+  try { localStorage.setItem(TRANS_LS.thinking, els.translateToggle.checked ? '1' : '0'); } catch {}
+});
+els.translateResponseToggle.addEventListener('change', () => {
+  try { localStorage.setItem(TRANS_LS.response, els.translateResponseToggle.checked ? '1' : '0'); } catch {}
+});
+els.translateTargetLang.addEventListener('change', () => {
+  try { localStorage.setItem(TRANS_LS.target, els.translateTargetLang.value); } catch {}
+});
+els.translateModel.addEventListener('change', () => {
+  try { localStorage.setItem(TRANS_LS.model, els.translateModel.value); } catch {}
+});
+
+// ================= Model UI =================
+const isAutoMode = () => els.model.value === 'auto';
+const isDeepseekV4 = (m) => /deepseek-v4/i.test(m || els.model.value);
+const syncReasoningVisibility = () => {
+  els.reasoningField.style.display = (els.model.value && isDeepseekV4(els.model.value)) ? '' : 'none';
+};
+els.model.addEventListener('change', () => {
+  els.modelTag.textContent = isAutoMode() ? 'auto' : els.model.value;
+  syncReasoningVisibility();
+});
+syncReasoningVisibility();
+
+// ================= Composer auto-resize =================
+const autoResize = () => {
+  els.userInput.style.height = 'auto';
+  els.userInput.style.height = Math.min(els.userInput.scrollHeight, 200) + 'px';
+};
+els.userInput.addEventListener('input', autoResize);
+
+// ================= Markdown / LaTeX / utils =================
+marked.setOptions({ breaks: true, gfm: true });
+
+// LaTeX rendering pipeline.
+//
+// Why we don't use KaTeX auto-render: it walks the DOM and naively matches
+// $...$ pairs anywhere, which breaks on our content for two reasons:
+//   1. Our markdown often has ` `$variable` ` or " $5 fee " — naive matching
+//      grabs unrelated dollar signs as math delimiters.
+//   2. We want code blocks to remain literal — `$x = 1$` inside a code block
+//      must stay as text, not render as a fraction.
+//
+// Strategy:
+//   1. Extract fenced code blocks and inline code spans → placeholders
+//      (marked will restore these as literal <code> later, so we just need
+//       to keep math regex from looking inside).
+//   2. Extract math spans:
+//        - $$...$$  → display math
+//        - \[...\]  → display math (LaTeX standard)
+//        - $...$    → inline math, but ONLY when both delimiters look like
+//                     math boundaries (not "$5", not "price is $5 today").
+//        - \(...\)  → inline math (LaTeX standard)
+//      Each becomes a unique placeholder token.
+//   3. Run marked + DOMPurify on the placeholdered text. Placeholders survive
+//      because they're plain alphanumerics.
+//   4. Replace placeholders with KaTeX-rendered HTML.
+//
+// KaTeX output is trusted (it only emits a known set of <span class="katex">
+// elements with controlled attributes), so we splice it AFTER DOMPurify rather
+// than letting Purify strip the math classes.
+function _katexRender(tex, displayMode) {
+  if (typeof window.katex === 'undefined') {
+    // KaTeX hasn't loaded yet (defer + slow network). Fall back to a styled
+    // span so the user at least sees the source rather than a broken page.
+    return `<span class="math-fallback">${escapeHtml(displayMode ? '$$' + tex + '$$' : '$' + tex + '$')}</span>`;
+  }
+  try {
+    return window.katex.renderToString(tex, {
+      displayMode,
+      throwOnError: false,    // bad LaTeX → red-highlighted source, not exception
+      strict: 'ignore',       // permissive: ignore unknown commands rather than error
+      output: 'html',
+    });
+  } catch (e) {
+    return `<span class="math-error" title="${escapeHtml(e.message || 'render failed')}">${escapeHtml(displayMode ? '$$' + tex + '$$' : '$' + tex + '$')}</span>`;
+  }
+}
+
+// Regex for inline $...$. The $ on each side must NOT be adjacent to a digit
+// (avoids "$5", "5$"). The body must be non-empty and not contain a newline
+// (matches a single-line span only, like real math notation).
+//   (^|[^\\$])    — start or non-escape, non-$ char (negative lookbehind alt)
+//   \$            — opening $
+//   (?!\s)        — not followed by whitespace
+//   (?!\d)        — not followed by digit
+//   ([^\$\n]+?)   — non-greedy body, no $ or newline
+//   (?<!\s)       — not preceded by whitespace
+//   \$            — closing $
+//   (?!\d)        — not followed by digit (so "$5" stays $5)
+const INLINE_MATH_RE = /(^|[^\\$])\$(?!\s)([^\$\n]+?)(?<!\s)\$(?!\d)/g;
+
+function renderMarkdown(text) {
+  if (!text) return '';
+
+  // Step 1: protect fenced code blocks AND inline code spans from math regex.
+  // We don't replace them — we just collect their ranges and skip math
+  // detection inside. Simpler approach: split source by code fences/spans,
+  // process non-code segments through the full pipeline, then concatenate.
+  //
+  // For pragmatic implementation, use placeholders. Marked will eventually
+  // re-render the protected segments from their original markdown text since
+  // we restore them BEFORE marked runs.
+  //
+  // Placeholder format: a string of pure ASCII alphanumerics. We CANNOT use
+  // NUL or other control chars because DOMPurify strips them as a security
+  // measure, which would break our split/join restoration. Plain alphanums
+  // are also safe through marked (it treats them as ordinary text words).
+  // The "xKx" prefix is intentionally weird so it's unlikely to collide with
+  // real user content.
+  const codeStash = [];
+  let stashCounter = 0;
+  let work = text.replace(/```[\s\S]*?```|`[^`\n]+`/g, (m) => {
+    const tok = `xKxCODE${stashCounter++}xKx`;
+    codeStash.push({ tok, src: m });
+    return tok;
+  });
+
+  // Step 2: extract math spans, replace with placeholders
+  const mathStash = [];
+  let mathCounter = 0;
+  // Display math first ($$...$$ and \[...\]) — multiline allowed
+  work = work.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+    const tok = `xKxMATH${mathCounter++}xKx`;
+    mathStash.push({ tok, html: _katexRender(tex.trim(), true) });
+    return tok;
+  });
+  work = work.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => {
+    const tok = `xKxMATH${mathCounter++}xKx`;
+    mathStash.push({ tok, html: _katexRender(tex.trim(), true) });
+    return tok;
+  });
+  // Inline math: \(...\) (unambiguous, no false positives)
+  work = work.replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => {
+    const tok = `xKxMATH${mathCounter++}xKx`;
+    mathStash.push({ tok, html: _katexRender(tex.trim(), false) });
+    return tok;
+  });
+  // Inline math: $...$ with the careful regex above
+  work = work.replace(INLINE_MATH_RE, (_m, pre, tex) => {
+    const tok = `xKxMATH${mathCounter++}xKx`;
+    mathStash.push({ tok, html: _katexRender(tex.trim(), false) });
+    return pre + tok;
+  });
+
+  // Step 3: restore code stash before marked runs (so marked formats them as
+  // <code> normally), then run marked + Purify.
+  for (const { tok, src } of codeStash) {
+    work = work.split(tok).join(src);
+  }
+  // Allow our placeholder tokens through Purify (they're alphanumerics + NUL,
+  // which Purify treats as text). Then replace tokens with KaTeX HTML AFTER
+  // sanitizing the rest.
+  let html = DOMPurify.sanitize(marked.parse(work));
+  for (const { tok, html: mathHtml } of mathStash) {
+    // Use split/join because tok may appear multiple times if marked duplicated
+    // it (it shouldn't, but defensive). Don't use regex — tok contains \u0000
+    // which is fine as a literal but we don't need anchoring.
+    html = html.split(tok).join(mathHtml);
+  }
+  return html;
+}
+
+// Escapes for both element-text and attribute-value contexts. The latter is
+// what catches filenames containing ", ', or = when they end up in `<img alt>`,
+// `<a title>`, etc. Pure element-text usage costs nothing extra.
+const escapeHtml = s => (s || '').replace(/[&<>"'`=\/]/g, c => ({
+  '&':'&amp;', '<':'&lt;', '>':'&gt;',
+  '"':'&quot;', "'":'&#39;', '`':'&#96;', '=':'&#61;', '/':'&#47;',
+}[c]));
+const fmtBytes = (n) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n/1024).toFixed(1)} KB`;
+  return `${(n/1024/1024).toFixed(1)} MB`;
+};
+const showError = msg => {
+  els.errorContainer.innerHTML = `<div class="error-banner">${escapeHtml(msg)}</div>`;
+  setTimeout(() => { els.errorContainer.innerHTML = ''; }, 7000);
+};
+const setKeyStatus = (kind, msg) => {
+  els.keyStatus.classList.remove('loading', 'ok', 'err');
+  els.keyStatus.classList.add(kind);
+  els.keyMsg.textContent = msg;
+};
+const scrollToBottom = () => { els.messages.scrollTop = els.messages.scrollHeight; };
+
+// ================= Probe / models / tools =================
+async function probeServer() {
+  setKeyStatus('loading', 'Checking server...');
+  try {
+    const r = await fetch('/health');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    if (text.trim() !== 'ok') throw new Error('unexpected response');
+    state.proxyOk = true;
+    setKeyStatus('ok', 'Proxy connected');
+    await fetchModels();
+    await fetchTools();
+    await fetchConvList();
+  } catch (e) {
+    state.proxyOk = false;
+    setKeyStatus('err', 'Proxy unreachable — start serve.py');
+  }
+}
+
+async function fetchModels() {
+  try {
+    const r = await fetch('/models');
+    if (!r.ok) return;
+    const data = await r.json();
+    state.pdfSupported = !!data.pdf_supported;
+    const items = data.items || [];
+    let okCount = 0, errCount = 0, unkCount = 0;
+    for (const m of items) {
+      state.modelHealth[m.id] = m;
+      if (m.healthy === true) okCount++;
+      else if (m.healthy === false) errCount++;
+      else unkCount++;
+    }
+    let html = `<span class="h-ok">healthy ${okCount}</span> · <span class="h-err">down ${errCount}</span>`;
+    if (unkCount > 0) html += ` · ${unkCount} checking`;
+    if (!data.pdf_supported) html += '<br><span class="h-err">pypdf not installed</span>';
+    els.healthSummary.innerHTML = html;
+  } catch (e) { /* silent */ }
+}
+
+async function fetchTools() {
+  try {
+    const r = await fetch('/v1/tools');
+    if (!r.ok) return;
+    const data = await r.json();
+    state.toolsAvailable = data.items || [];
+    renderToolList();
+  } catch (e) { /* silent */ }
+}
+
+function renderToolList() {
+  if (!state.toolsAvailable.length) {
+    els.toolList.innerHTML = '<div style="color:var(--ink-mute); font-size:11px; font-style:italic;">No tools available</div>';
+    return;
+  }
+  els.toolList.innerHTML = state.toolsAvailable.map(t => `
+    <div class="tool-item">
+      <span class="tool-name">${escapeHtml(t.name)}</span>
+      <div class="tool-desc">${escapeHtml(t.description.slice(0, 110))}${t.description.length > 110 ? '…' : ''}</div>
+    </div>
+  `).join('');
+}
+
+// ================= Attachment ingestion =================
+const TEXT_EXTS = new Set([
+  'txt','md','markdown','rst','tex','ltx','bib','cls','sty',
+  'json','yaml','yml','toml','ini','cfg','conf','env','properties',
+  'py','pyi','ipynb','js','mjs','cjs','jsx','ts','tsx',
+  'rs','go','java','kt','swift','scala','groovy','clj',
+  'c','cc','cpp','cxx','h','hh','hpp','hxx','cs','fs',
+  'rb','php','pl','pm','lua','tcl','r','jl','m','f','f90',
+  'sh','bash','zsh','fish','ps1','bat','cmd',
+  'html','htm','xhtml','css','scss','sass','less',
+  'xml','svg','vue','svelte','astro',
+  'csv','tsv','log','gitignore','gitattributes',
+  'sql','graphql','gql','proto','thrift',
+  'dockerfile','containerfile','makefile','cmake',
+  'vim','el','lisp','scm','rkt','hs','ml','mli','elm',
+  'asm','s','wat','wgsl','glsl','hlsl','diff','patch',
+]);
+const FENCE_LANG = {
+  py:'python', pyi:'python', ipynb:'json',
+  js:'javascript', mjs:'javascript', cjs:'javascript', jsx:'jsx', ts:'typescript', tsx:'tsx',
+  rs:'rust', go:'go', java:'java', kt:'kotlin', swift:'swift', scala:'scala',
+  c:'c', cc:'cpp', cpp:'cpp', cxx:'cpp', h:'c', hpp:'cpp', cs:'csharp',
+  rb:'ruby', php:'php', pl:'perl', lua:'lua', r:'r', jl:'julia',
+  sh:'bash', bash:'bash', zsh:'bash', fish:'fish', ps1:'powershell', bat:'batch',
+  html:'html', htm:'html', css:'css', scss:'scss', less:'less',
+  xml:'xml', svg:'xml', json:'json', yaml:'yaml', yml:'yaml', toml:'toml',
+  md:'markdown', rst:'rst', tex:'latex', ltx:'latex', bib:'bibtex',
+  csv:'', tsv:'', log:'',
+  sql:'sql', graphql:'graphql', proto:'protobuf',
+  dockerfile:'dockerfile', makefile:'makefile', cmake:'cmake',
+  diff:'diff', patch:'diff',
+};
+
+const fileToDataUrl = (file) => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result);
+  r.onerror = () => rej(r.error);
+  r.readAsDataURL(file);
+});
+const fileToText = (file) => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result);
+  r.onerror = () => rej(r.error);
+  r.readAsText(file, 'utf-8');
+});
+function getExt(name) {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+async function ingestFile(file) {
+  const ext = getExt(file.name);
+  const mime = file.type || '';
+  const HARD_CAP = 12 * 1024 * 1024;
+  if (file.size > HARD_CAP) {
+    throw new Error(`${file.name}: ${fmtBytes(file.size)} — exceeds 12 MB limit`);
+  }
+  if (mime.startsWith('image/')) {
+    const dataUrl = await fileToDataUrl(file);
+    return { kind: 'image', name: file.name, size: file.size, dataUrl };
+  }
+  if (ext === 'pdf' || mime === 'application/pdf') {
+    if (!state.pdfSupported) {
+      throw new Error('pypdf not installed on server — pip install pypdf');
+    }
+    const dataUrl = await fileToDataUrl(file);
+    const b64 = (dataUrl.split(',')[1]) || '';
+    const r = await fetch('/v1/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, data_base64: b64, mime })
+    });
+    if (!r.ok) throw new Error(`PDF extraction failed (${r.status}): ${await r.text()}`);
+    const data = await r.json();
+    return { kind: 'pdf', name: file.name, size: file.size,
+             text: data.text || '', n_pages: data.n_pages || 0 };
+  }
+  const lname = file.name.toLowerCase();
+  if (mime.startsWith('text/') || TEXT_EXTS.has(ext) ||
+      ['dockerfile','makefile','containerfile'].includes(lname)) {
+    const text = await fileToText(file);
+    return { kind: 'text', name: file.name, size: file.size, text, ext };
+  }
+  throw new Error(`Unsupported file: ${file.name} (.${ext || 'unknown'})`);
+}
+
+els.attachBtn.addEventListener('click', () => els.attachInput.click());
+els.attachInput.addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  els.attachInput.value = '';
+  for (const f of files) {
+    const slot = { kind: 'unknown', name: f.name, size: f.size, busy: true, _id: newAttId() };
+    state.attachments.push(slot);
+    renderAttachments();
+    try {
+      const meta = await ingestFile(f);
+      Object.assign(slot, meta, { busy: false });
+    } catch (err) {
+      const idx = state.attachments.indexOf(slot);
+      if (idx >= 0) state.attachments.splice(idx, 1);
+      showError(err.message);
+    }
+    renderAttachments();
+  }
+});
+
+function renderAttachments() {
+  const c = els.composerAttachments;
+  if (state.attachments.length === 0) {
+    c.classList.remove('has-items');
+    c.innerHTML = '';
+    return;
+  }
+  c.classList.add('has-items');
+  c.innerHTML = '';
+  state.attachments.forEach((a) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'att-item ' + (a.kind || 'unknown');
+    if (a.kind === 'image') {
+      wrap.innerHTML = `<img src="${a.dataUrl}" alt="${escapeHtml(a.name)}">`;
+    } else if (a.kind === 'pdf') {
+      wrap.innerHTML = `
+        <svg class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+        </svg>
+        <div class="att-meta">
+          <div class="att-name">${escapeHtml(a.name)}</div>
+          <div class="att-info">PDF · ${a.n_pages || '?'} pages · ${fmtBytes(a.size)}</div>
+        </div>`;
+    } else if (a.kind === 'text') {
+      wrap.innerHTML = `
+        <svg class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+          <path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>
+        </svg>
+        <div class="att-meta">
+          <div class="att-name">${escapeHtml(a.name)}</div>
+          <div class="att-info">text · ${(a.text||'').length.toLocaleString()} chars · ${fmtBytes(a.size)}</div>
+        </div>`;
+    } else {
+      wrap.innerHTML = `
+        <svg class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+        </svg>
+        <div class="att-meta">
+          <div class="att-name">${escapeHtml(a.name)}</div>
+          <div class="att-info">${fmtBytes(a.size)}</div>
+        </div>`;
+    }
+    if (a.busy) {
+      const overlay = document.createElement('div');
+      overlay.className = 'att-busy'; overlay.textContent = 'Reading...';
+      wrap.appendChild(overlay);
+    }
+    const del = document.createElement('button');
+    del.className = 'att-del'; del.textContent = '×';
+    del.addEventListener('click', () => {
+      const idx = state.attachments.indexOf(a);
+      if (idx >= 0) state.attachments.splice(idx, 1);
+      renderAttachments();
+    });
+    wrap.appendChild(del);
+    c.appendChild(wrap);
+  });
+}
+
+// ================= TTS (VibeVoice worker; Web Speech fallback) =================
+const tts = {
+  current: null,
+  vibeVoiceReady: null,    // null=unknown, true=ready, false=unavailable
+  vibeVoices: [],          // populated from /v1/tts/voices
+  webVoices: [],           // populated from window.speechSynthesis.getVoices()
+
+  async refreshVibeVoiceStatus() {
+    try {
+      const r = await fetch('/v1/tts/health');
+      if (r.ok) {
+        const d = await r.json();
+        this.vibeVoiceReady = !!d.ok;
+      } else {
+        this.vibeVoiceReady = false;
+      }
+    } catch {
+      this.vibeVoiceReady = false;
+    }
+    if (this.vibeVoiceReady) {
+      try {
+        const r = await fetch('/v1/tts/voices');
+        if (r.ok) {
+          const d = await r.json();
+          this.vibeVoices = (d.voices || []).filter(v => v.loadable !== false);
+        }
+      } catch { /* ignore */ }
+    }
+    this.populateVoicePicker();
+  },
+
+  loadWebVoices() {
+    this.webVoices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+    this.populateVoicePicker();
+  },
+
+  populateVoicePicker() {
+    const sel = els.ttsVoice;
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '';
+
+    if (this.vibeVoiceReady && this.vibeVoices.length) {
+      const og = document.createElement('optgroup');
+      og.label = 'VibeVoice (local model)';
+      const sorted = [...this.vibeVoices].sort((a, b) => {
+        const pri = (l) => (l === 'ko' ? 0 : l === 'ja' ? 1 : l.startsWith('en') ? 2 : 3);
+        return pri(a.language) - pri(b.language);
+      });
+      for (const v of sorted) {
+        const opt = document.createElement('option');
+        opt.value = `vv:${v.name}`;
+        opt.textContent = `${v.name} · ${v.language} — ${v.description || ''}`;
+        og.appendChild(opt);
+      }
+      sel.appendChild(og);
+    }
+    if (this.webVoices.length) {
+      const og = document.createElement('optgroup');
+      og.label = this.vibeVoiceReady ? 'System (fallback)' : 'System TTS';
+      const ko = this.webVoices.filter(v => v.lang.startsWith('ko'));
+      const others = this.webVoices.filter(v => !v.lang.startsWith('ko'));
+      for (const v of [...ko, ...others]) {
+        const opt = document.createElement('option');
+        opt.value = `web:${v.name}`;
+        opt.textContent = `${v.name} (${v.lang})`;
+        og.appendChild(opt);
+      }
+      sel.appendChild(og);
+    }
+    if (!sel.children.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = 'TTS unavailable';
+      sel.appendChild(opt);
+    }
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+
+    // Status indicator
+    if (els.ttsStatus) {
+      if (this.vibeVoiceReady) {
+        els.ttsStatus.textContent = `· VibeVoice (${this.vibeVoices.length})`;
+        els.ttsStatus.style.color = 'var(--accent)';
+      } else if (this.webVoices.length) {
+        els.ttsStatus.textContent = '· system only';
+        els.ttsStatus.style.color = '';
+      } else {
+        els.ttsStatus.textContent = '';
+      }
+    }
+  },
+
+  pickVoice() {
+    const want = els.ttsVoice ? els.ttsVoice.value : '';
+    if (want) return want;
+    // Prefer VibeVoice Korean if available, else any web Korean voice
+    if (this.vibeVoiceReady) {
+      const ko = this.vibeVoices.find(v => v.language === 'ko');
+      if (ko) return `vv:${ko.name}`;
+      const en = this.vibeVoices.find(v => v.name === 'Emma') || this.vibeVoices[0];
+      if (en) return `vv:${en.name}`;
+    }
+    const wko = this.webVoices.find(v => v.lang.startsWith('ko'));
+    if (wko) return `web:${wko.name}`;
+    return '';
+  },
+
+  async speak(text, btn) {
+    if (this.current) this.stop();
+    if (!text) return;
+    const choice = this.pickVoice();
+    if (!choice) {
+      this.flash(btn, 'TTS unavailable');
+      return;
+    }
+    if (choice.startsWith('vv:')) {
+      await this.speakVibeVoice(text, choice.slice(3), btn);
+    } else if (choice.startsWith('web:')) {
+      this.speakWeb(text, choice.slice(4), btn);
+    }
+  },
+
+  async speakVibeVoice(text, voiceName, btn) {
+    this.setBtn(btn, 'loading');
+    let abort = new AbortController();
+    this.current = { kind: 'vv', abort, btn };
+    try {
+      const r = await fetch('/v1/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: voiceName }),
+        signal: abort.signal,
+      });
+      if (!r.ok) {
+        let detail = '';
+        try { const d = await r.json(); detail = d.detail || d.error || ''; }
+        catch { detail = await r.text(); }
+        throw new Error(`HTTP ${r.status}: ${detail.slice(0, 200)}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.playbackRate = parseFloat(els.ttsRate.value) || 1.0;
+      this.current.audio = audio;
+      audio.onended = () => { this.setBtn(btn, 'idle'); URL.revokeObjectURL(url); this.current = null; };
+      audio.onerror = () => { this.setBtn(btn, 'idle'); URL.revokeObjectURL(url); this.current = null; };
+      this.setBtn(btn, 'playing');
+      await audio.play();
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        // Stopped by user
+      } else {
+        console.warn('VibeVoice TTS failed:', e);
+        this.flash(btn, 'VibeVoice failed → fallback');
+        // Fallback to Web Speech
+        this.current = null;
+        const wfb = this.webVoices.find(v => v.lang.startsWith('ko')) || this.webVoices[0];
+        if (wfb) this.speakWeb(text, wfb.name, btn);
+        else this.setBtn(btn, 'idle');
+      }
+    }
+  },
+
+  speakWeb(text, voiceName, btn) {
+    if (!('speechSynthesis' in window)) {
+      this.setBtn(btn, 'idle');
+      return;
+    }
+    const utter = new SpeechSynthesisUtterance(text);
+    const v = this.webVoices.find(x => x.name === voiceName);
+    if (v) { utter.voice = v; utter.lang = v.lang; }
+    else utter.lang = 'ko-KR';
+    utter.rate = parseFloat(els.ttsRate.value) || 1.0;
+    utter.pitch = 1.0;
+    utter.onend = () => { this.setBtn(btn, 'idle'); this.current = null; };
+    utter.onerror = () => { this.setBtn(btn, 'idle'); this.current = null; };
+    this.current = { kind: 'web', utter, btn };
+    this.setBtn(btn, 'playing');
+    window.speechSynthesis.speak(utter);
+  },
+
+  stop() {
+    if (!this.current) return;
+    if (this.current.kind === 'vv') {
+      try { this.current.abort.abort(); } catch {}
+      if (this.current.audio) { try { this.current.audio.pause(); } catch {} }
+    } else if (this.current.kind === 'web') {
+      window.speechSynthesis.cancel();
+    }
+    this.setBtn(this.current.btn, 'idle');
+    this.current = null;
+  },
+
+  setBtn(btn, st) {
+    if (!btn) return;
+    btn.dataset.state = st;
+    if (st === 'loading') {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="9" stroke-dasharray="14 8"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>';
+      btn.title = 'Synthesizing…';
+    } else if (st === 'playing') {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
+      btn.title = 'Stop';
+    } else {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+      btn.title = 'Read aloud';
+    }
+  },
+
+  flash(btn, msg) {
+    if (!btn) return;
+    const orig = btn.title;
+    btn.title = msg;
+    setTimeout(() => { if (btn.title === msg) btn.title = orig; }, 2000);
+  },
+};
+
+// Initialize TTS on page load
+if ('speechSynthesis' in window) {
+  tts.loadWebVoices();
+  window.speechSynthesis.onvoiceschanged = () => tts.loadWebVoices();
+}
+tts.refreshVibeVoiceStatus();
+
+// ================= Copy button helper =================
+// Returns a button that copies getText() to clipboard on click. Uses the
+// modern Clipboard API where available, falls back to the legacy execCommand
+// path for non-secure-context environments (e.g. plain HTTP on LAN). Flashes
+// the button green for ~1.2s after a successful copy.
+const COPY_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const CHECK_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+async function copyTextToClipboard(text) {
+  if (!text) return false;
+  // Modern API requires a secure context (HTTPS or localhost)
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch (e) { /* fall through to legacy */ }
+  }
+  // Legacy fallback — works on plain HTTP LAN setups
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) { return false; }
+}
+
+function makeCopyButton(getText) {
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn';
+  btn.type = 'button';
+  btn.title = 'Copy';
+  btn.setAttribute('aria-label', 'Copy message');
+  btn.innerHTML = COPY_ICON_SVG;
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const text = (typeof getText === 'function') ? getText() : '';
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      btn.classList.add('copied');
+      btn.innerHTML = CHECK_ICON_SVG;
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.innerHTML = COPY_ICON_SVG;
+      }, 1200);
+    } else {
+      // Visible error if both clipboard paths failed (very rare)
+      showError('Copy failed — check browser permissions.');
+    }
+  });
+  return btn;
+}
+
+function markdownToPlain(md) {
+  if (!md) return '';
+  return md
+    .replace(/```[\s\S]*?```/g, ' code block. ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^\s*#+\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*[->•]\s+/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{2,}/g, '. ')
+    .replace(/\n/g, ' ')
+    .trim();
+}
+// ================= Bubble rendering =================
+function clearMessages() { els.messagesInner.innerHTML = ''; }
+function renderEmpty() {
+  els.messagesInner.innerHTML = `
+    <div class="empty-state">
+      <div class="ornament">➹</div>
+      <h2>Start a conversation</h2>
+    </div>`;
+}
+
+function appendUserBubble(content) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg user';
+  wrap.innerHTML = `<div class="msg-role">You</div><div class="bubble"></div>`;
+  const bubble = wrap.querySelector('.bubble');
+
+  let textPart = '';
+  const imgs = [];
+  if (typeof content === 'string') {
+    textPart = content;
+  } else if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part.type === 'text') textPart += (textPart ? '\n' : '') + (part.text || '');
+      else if (part.type === 'image_url') imgs.push(part.image_url?.url);
+    }
+  }
+
+  // Strip embedded [Attachment:] sections from text and re-render them as chips
+  const fileChips = [];
+  textPart = textPart.replace(/\n*\[(?:Attachment|PDF attachment): ([^\]]+)\][\s\S]*?(?=\n\n\[(?:Attachment|PDF attachment)|\n*$)/g, (m, name) => {
+    fileChips.push(name);
+    return '';
+  }).replace(/^\s+/, '').replace(/\s+$/, '');
+
+  if (textPart) {
+    const t = document.createElement('div');
+    t.className = 'user-text';
+    t.textContent = textPart;
+    bubble.appendChild(t);
+  }
+  for (const url of imgs) {
+    if (!url) continue;
+    const img = document.createElement('img'); img.src = url; img.className = 'msg-image';
+    bubble.appendChild(img);
+  }
+  for (const name of fileChips) {
+    const chip = document.createElement('div');
+    chip.className = 'msg-file-chip';
+    chip.innerHTML = `<svg class="ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> ${escapeHtml(name)}`;
+    bubble.appendChild(chip);
+  }
+
+  // Copy button — copies the text portion. Attached files and images are
+  // intentionally excluded since they can't be represented as plain text.
+  if (textPart) {
+    bubble.appendChild(makeCopyButton(() => textPart));
+  }
+
+  els.messagesInner.appendChild(wrap);
+  scrollToBottom();
+}
+
+function makeAssistantBubble() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg assistant';
+  wrap.innerHTML = `
+    <div class="msg-role">Robot</div>
+    <div class="bubble">
+      <div class="routing-label" style="display:none;"></div>
+      <div class="tool-running" style="display:none;"></div>
+      <details class="thinking-block" open style="display:none;">
+        <summary>
+          <span class="think-label">thinking</span>
+          <span class="think-translating" style="display:none;">Translating</span>
+          <div class="lang-tabs">
+            <button class="lang-tab" data-lang="ko">KO</button>
+            <button class="lang-tab" data-lang="en">EN</button>
+          </div>
+        </summary>
+        <div class="think-body think-en" data-lang="en"></div>
+        <div class="think-body think-ko" data-lang="ko"></div>
+      </details>
+      <div class="content"><div class="typing"><span></span><span></span><span></span></div></div>
+      <div class="content-translation" style="display:none;">
+        <div class="content-translation-label">translation</div>
+        <div class="content-translation-body"></div>
+      </div>
+      <div class="artifacts"></div>
+    </div>
+  `;
+  els.messagesInner.appendChild(wrap);
+  scrollToBottom();
+
+  const bubble = wrap.querySelector('.bubble');
+  const routingLabel = bubble.querySelector('.routing-label');
+  const toolRunning = bubble.querySelector('.tool-running');
+  const thinking = bubble.querySelector('.thinking-block');
+  const thinkEn = bubble.querySelector('.think-en');
+  const thinkKo = bubble.querySelector('.think-ko');
+  const transStatus = bubble.querySelector('.think-translating');
+  const tabs = bubble.querySelectorAll('.lang-tab');
+  const contentEl = bubble.querySelector('.content');
+  const contentTransWrap = bubble.querySelector('.content-translation');
+  const contentTransBody = bubble.querySelector('.content-translation-body');
+  const contentTransLabel = bubble.querySelector('.content-translation-label');
+  const artifactsEl = bubble.querySelector('.artifacts');
+  let ttsBtn = null;
+  let lastContent = '';
+
+  const applyTab = (lang) => {
+    state.thinkLang = lang;
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.lang === lang));
+    thinkEn.style.display = lang === 'en' ? '' : 'none';
+    thinkKo.style.display = lang === 'ko' ? '' : 'none';
+  };
+  tabs.forEach(t => t.addEventListener('click', (e) => { e.preventDefault(); applyTab(t.dataset.lang); }));
+  applyTab(state.thinkLang);
+
+  return {
+    wrap, bubble,
+    setRouting(info) {
+      if (!info) { routingLabel.style.display = 'none'; return; }
+      const m = (info.model || '').replace(/^.+\//, '');
+      routingLabel.style.display = '';
+      let html = `<span class="arrow">→</span> <span style="color:var(--ink-soft);">${escapeHtml(m)}</span> · <span class="cat">${escapeHtml(info.category || '')}</span>`;
+      if (info.confidence > 0) {
+        html += ` <span class="conf">conf ${info.confidence.toFixed(2)}</span>`;
+      }
+      if (info.reason) html += ` · <span class="reason">${escapeHtml(info.reason)}</span>`;
+      if (info.req_id) html += ` <span class="req-id">[${escapeHtml(info.req_id)}]</span>`;
+      if (info.tools_enabled) html += ` <span class="tools-badge">tools</span>`;
+      if (Array.isArray(info.notes) && info.notes.length) {
+        html += `<br><span class="notes-amber">· ${escapeHtml(info.notes.join('; '))}</span>`;
+      }
+      routingLabel.innerHTML = html;
+    },
+    markFallback(servedModel, attempt) {
+      const m = (servedModel || '').replace(/^.+\//, '');
+      const fb = document.createElement('span');
+      fb.className = 'fb-badge';
+      fb.textContent = `↻ ${m} · attempt ${attempt}`;
+      routingLabel.style.display = '';
+      routingLabel.appendChild(fb);
+    },
+    attachLedger(entries) {
+      if (!entries || entries.length === 0) return;
+      const block = document.createElement('details');
+      block.className = 'ledger-block';
+      let inner = `<summary>recovery ledger · ${entries.length} entries</summary>`;
+      for (const e of entries) {
+        const cls = `state-${escapeHtml(e.state || '')}`;
+        inner += `<div class="entry">`
+          + `<span class="recipe">${escapeHtml(e.recipe || '?')}</span>`
+          + ` · attempt ${escapeHtml(String(e.attempt))}`
+          + ` · <span class="${cls}">${escapeHtml(e.state || '')}</span>`
+          + (e.summary ? ` · ${escapeHtml(e.summary)}` : '')
+          + `</div>`;
+      }
+      block.innerHTML = inner;
+      routingLabel.style.display = '';
+      routingLabel.appendChild(block);
+    },
+    attachToolLog(entries) {
+      if (!entries || entries.length === 0) return;
+      const block = document.createElement('details');
+      block.className = 'toollog-block';
+      block.open = true;
+      const sum = document.createElement('summary');
+      sum.textContent = `tool calls · ${entries.length}`;
+      block.appendChild(sum);
+      for (const e of entries) {
+        const row = document.createElement('div');
+        row.className = 'entry';
+        const stCls = e.ok ? 'state-ok' : 'state-failed';
+        const stTxt = e.ok ? 'ok' : 'failed';
+        row.innerHTML = `<span class="tool-name">${escapeHtml(e.name || '?')}</span>`
+          + ` · <span class="${stCls}">${stTxt}</span>`
+          + (typeof e.latency_ms === 'number' ? ` · ${e.latency_ms}ms` : '')
+          + (e.summary ? ` · ${escapeHtml(String(e.summary).slice(0, 200))}` : '');
+        block.appendChild(row);
+        // Args dump: nested <details> per call — collapsed by default to avoid
+        // wall-of-text in the bubble. Useful for diagnosing prompt-quality
+        // issues (e.g. why image_generate produced an off-topic image).
+        if (e.args && Object.keys(e.args).length > 0) {
+          const argsBlock = document.createElement('details');
+          argsBlock.className = 'toollog-args';
+          const argsSum = document.createElement('summary');
+          argsSum.textContent = 'args';
+          argsBlock.appendChild(argsSum);
+          const pre = document.createElement('pre');
+          // Use 2-space indent and stable key order; truncate giant string values
+          // so an embedded base64 blob doesn't blow up the bubble.
+          const safeArgs = {};
+          for (const [k, v] of Object.entries(e.args)) {
+            if (typeof v === 'string' && v.length > 500) {
+              safeArgs[k] = v.slice(0, 500) + ` …(+${v.length - 500} chars)`;
+            } else {
+              safeArgs[k] = v;
+            }
+          }
+          pre.textContent = JSON.stringify(safeArgs, null, 2);
+          argsBlock.appendChild(pre);
+          block.appendChild(argsBlock);
+        }
+      }
+      routingLabel.style.display = '';
+      routingLabel.appendChild(block);
+    },
+    setToolRunning(name) {
+      if (!name) { toolRunning.style.display = 'none'; toolRunning.textContent = ''; return; }
+      toolRunning.style.display = '';
+      toolRunning.textContent = `${name} running...`;
+    },
+    setReasoning(text) {
+      if (text) thinking.style.display = '';
+      thinkEn.textContent = text || '';
+      scrollToBottom();
+    },
+    setTranslation(text, opts = {}) {
+      if (text) thinkKo.textContent = text;
+      transStatus.style.display = opts.translating ? '' : 'none';
+    },
+    setContentTranslation(text, opts = {}) {
+      // Translation rendered just below the assistant content. Shown only
+      // when a translation exists or is in progress; hidden otherwise so
+      // the bubble doesn't grow an empty section.
+      const haveText = !!(text || opts.translating);
+      contentTransWrap.style.display = haveText ? '' : 'none';
+      contentTransBody.innerHTML = text ? renderMarkdown(text) : '';
+      contentTransLabel.textContent = opts.translating
+        ? `translating → ${opts.lang || ''}`.trim()
+        : (opts.lang ? `translation · ${opts.lang}` : 'translation');
+    },
+    setContent(markdown) {
+      lastContent = markdown || '';
+      contentEl.innerHTML = markdown ? renderMarkdown(markdown) : '';
+    },
+    appendArtifactImage(src, format, idStr) {
+      // src is now either a URL (new path: /v1/artifact/<id>) or a legacy
+      // data: URI built from base64 (for replays of old saved messages).
+      // We just stuff it into <img src> verbatim.
+      const img = document.createElement('img');
+      img.src = src;
+      img.className = 'msg-image';
+      img.alt = idStr || 'generated image';
+      artifactsEl.appendChild(img);
+      scrollToBottom();
+    },
+    appendArtifactAudio(src, format, idStr, voice) {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-top:8px;display:flex;flex-direction:column;gap:4px;';
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.src = src;
+      audio.style.cssText = 'width:100%;max-width:420px;';
+      const label = document.createElement('div');
+      label.style.cssText = 'font-size:11px;opacity:0.6;font-family:var(--font-mono);';
+      label.textContent = `${idStr || 'audio'}${voice ? ' · ' + voice : ''}`;
+      wrap.appendChild(audio);
+      wrap.appendChild(label);
+      artifactsEl.appendChild(wrap);
+      scrollToBottom();
+    },
+    setTyping() {
+      contentEl.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+    },
+    finalizeError(msg) {
+      contentEl.innerHTML = `<em style="color:var(--accent)">Error: ${escapeHtml(msg)}</em>`;
+    },
+    addTtsButton() {
+      if (ttsBtn || !lastContent) return;
+      ttsBtn = document.createElement('button');
+      ttsBtn.className = 'tts-btn'; ttsBtn.title = 'Read aloud';
+      tts.setBtn(ttsBtn, 'idle');
+      ttsBtn.addEventListener('click', () => {
+        if (ttsBtn.dataset.state === 'playing') tts.stop();
+        else tts.speak(markdownToPlain(lastContent), ttsBtn);
+      });
+      bubble.appendChild(ttsBtn);
+    },
+    addCopyButton() {
+      // Idempotent — don't double-attach if already present
+      if (bubble.querySelector(':scope > .copy-btn')) return;
+      if (!lastContent) return;
+      // Copy the raw markdown so code blocks, lists, links survive paste
+      bubble.appendChild(makeCopyButton(() => lastContent));
+    }
+  };
+}
+
+function renderHistory() {
+  clearMessages();
+  if (state.history.length === 0) { renderEmpty(); return; }
+  for (const m of state.history) {
+    if (m.role === 'user') {
+      appendUserBubble(m.content);
+    } else if (m.role === 'assistant') {
+      const h = makeAssistantBubble();
+      if (m.reasoning_content) h.setReasoning(m.reasoning_content);
+      const text = (typeof m.content === 'string') ? m.content : '';
+      h.setContent(text);
+      // Replay artifacts (images, audio) saved with this message. New
+      // artifacts have a `url` (server-stored, fetched lazily); legacy ones
+      // saved before that change carry a `b64` data URI.
+      if (Array.isArray(m.artifacts)) {
+        for (const a of m.artifacts) {
+          if (!a) continue;
+          const src = a.url
+            ? a.url
+            : (a.b64 ? `data:${a.format || (a.kind === 'audio' ? 'audio/wav' : 'image/png')};base64,${a.b64}` : null);
+          if (!src) continue;
+          if (a.kind === 'image') {
+            h.appendArtifactImage(src, a.format || 'image/png', a.id || '');
+          } else if (a.kind === 'audio') {
+            h.appendArtifactAudio(src, a.format || 'audio/wav', a.id || '', a.voice || '');
+          }
+        }
+      }
+      if (Array.isArray(m.tool_log) && m.tool_log.length) h.attachToolLog(m.tool_log);
+      h.addTtsButton();
+      h.addCopyButton();
+    }
+  }
+  scrollToBottom();
+}
+
+// ================= Translation =================
+// Cheap script-frequency heuristic. Returns a 2-letter-ish tag matching the
+// values used by the target-lang selector. We only need to decide "is this
+// already in the target language?" — perfect detection isn't required.
+function detectLang(text) {
+  if (!text) return 'unknown';
+  let ko = 0, ja = 0, zh = 0, latin = 0, total = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    if ((cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0x1100 && cp <= 0x11FF) ||
+        (cp >= 0x3130 && cp <= 0x318F)) { ko++; total++; }
+    else if ((cp >= 0x3040 && cp <= 0x309F) || (cp >= 0x30A0 && cp <= 0x30FF)) { ja++; total++; }
+    else if (cp >= 0x4E00 && cp <= 0x9FFF) { zh++; total++; }
+    else if ((cp >= 0x41 && cp <= 0x5A) || (cp >= 0x61 && cp <= 0x7A)) { latin++; total++; }
+  }
+  if (total === 0) return 'unknown';
+  if (ko / total > 0.10) return 'Korean';
+  if (ja / total > 0.10) return 'Japanese';   // kana is unambiguous
+  if (zh > 0 && (latin / total) < 0.30) return 'Chinese';
+  if (latin / total > 0.50) return 'English';
+  return 'unknown';
+}
+
+class ThinkingTranslator {
+  constructor(handle) {
+    this.handle = handle;
+    this.lastTranslatedLength = 0; this.fullText = '';
+    this.timer = null; this.controller = null;
+    this.DEBOUNCE_MS = 800; this.THRESHOLD = 300;
+  }
+  feed(t) {
+    this.fullText = t;
+    if (!els.translateToggle.checked || !this.fullText) return;
+    const grew = this.fullText.length - this.lastTranslatedLength;
+    if (grew >= this.THRESHOLD) { clearTimeout(this.timer); this.run(); }
+    else { clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), this.DEBOUNCE_MS); }
+  }
+  flush() {
+    clearTimeout(this.timer);
+    if (!els.translateToggle.checked || !this.fullText) return;
+    if (this.fullText.length === this.lastTranslatedLength && !this.controller) return;
+    this.run();
+  }
+  abort() {
+    clearTimeout(this.timer);
+    if (this.controller) { try { this.controller.abort(); } catch {} this.controller = null; }
+    this.handle.setTranslation('', { translating: false });
+  }
+  async run() {
+    if (this.controller) { try { this.controller.abort(); } catch {} }
+    this.controller = new AbortController();
+    const text = this.fullText;
+    this.lastTranslatedLength = text.length;
+    this.handle.setTranslation('', { translating: true });
+    let res;
+    try {
+      res = await fetch('/v1/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text, target_lang: els.translateTargetLang.value,
+          model: els.translateModel.value, stream: true,
+          max_tokens: Math.min(8192, Math.max(1024, text.length * 3))
+        }),
+        signal: this.controller.signal
+      });
+    } catch (e) {
+      if (e.name !== 'AbortError') this.handle.setTranslation('', { translating: false });
+      return;
+    }
+    if (!res.ok) { this.handle.setTranslation('(translation failed)', { translating: false }); return; }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', acc = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') { this.handle.setTranslation(acc, { translating: false }); return; }
+          try {
+            const j = JSON.parse(data);
+            const d = j.choices?.[0]?.delta?.content;
+            if (d) { acc += d; this.handle.setTranslation(acc, { translating: true }); }
+          } catch {}
+        }
+      }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    this.handle.setTranslation(acc, { translating: false });
+    this.controller = null;
+  }
+}
+
+// Streaming translator for the assistant's *response* (vs. its reasoning).
+// Same control flow as ThinkingTranslator but writes to the message's
+// content-translation slot via setContentTranslation. Skips the call when
+// the detected response language already matches the target.
+class ResponseTranslator {
+  constructor(handle) {
+    this.handle = handle;
+    this.controller = null;
+  }
+  abort() {
+    if (this.controller) { try { this.controller.abort(); } catch {} this.controller = null; }
+  }
+  async runOnce(text) {
+    if (!els.translateResponseToggle?.checked) return;
+    if (!text || !text.trim()) return;
+    const target = els.translateTargetLang.value;
+    if (detectLang(text) === target) return;   // already in target
+    if (this.controller) { try { this.controller.abort(); } catch {} }
+    this.controller = new AbortController();
+    this.handle.setContentTranslation('', { translating: true, lang: target });
+    let res;
+    try {
+      res = await fetch('/v1/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text, target_lang: target,
+          model: els.translateModel.value, stream: true,
+          max_tokens: Math.min(8192, Math.max(1024, text.length * 3)),
+        }),
+        signal: this.controller.signal,
+      });
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        this.handle.setContentTranslation('(translation failed)', { translating: false, lang: target });
+      }
+      return;
+    }
+    if (!res.ok) {
+      this.handle.setContentTranslation('(translation failed)', { translating: false, lang: target });
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', acc = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') {
+            this.handle.setContentTranslation(acc, { translating: false, lang: target });
+            return;
+          }
+          try {
+            const j = JSON.parse(data);
+            const d = j.choices?.[0]?.delta?.content;
+            if (d) { acc += d; this.handle.setContentTranslation(acc, { translating: true, lang: target }); }
+          } catch {}
+        }
+      }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    this.handle.setContentTranslation(acc, { translating: false, lang: target });
+    this.controller = null;
+  }
+}
+
+// ================= Conversations =================
+async function fetchConvList() {
+  try {
+    const r = await fetch('/conversations');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    state.conversations = (await r.json()).items || [];
+    renderConvList();
+  } catch (e) { /* silent */ }
+}
+function renderConvList() {
+  const list = state.conversations;
+  if (list.length === 0) {
+    els.convList.innerHTML = `<div class="conv-empty">No conversations yet</div>`; return;
+  }
+  els.convList.innerHTML = '';
+  for (const c of list) {
+    const item = document.createElement('div');
+    item.className = 'conv-item' + (c.id === state.conversationId ? ' active' : '');
+    item.innerHTML = `
+      <div class="conv-body">
+        <div class="conv-title">${escapeHtml(c.title || '(untitled)')}</div>
+        <div class="conv-meta">${escapeHtml((c.model || '').replace(/^.+\//, ''))} · ${formatTime(c.updated_at)}</div>
+      </div>
+      <button class="conv-del" title="Delete">×</button>`;
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.conv-del')) return;
+      loadConversation(c.id);
+    });
+    item.querySelector('.conv-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete conversation "${c.title || c.id}"?`)) return;
+      await deleteConversation(c.id);
+    });
+    els.convList.appendChild(item);
+  }
+}
+function formatTime(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const diffMin = Math.floor((Date.now() - d) / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}min ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD < 7) return `${diffD}d ago`;
+    return d.toISOString().slice(0, 10);
+  } catch { return iso; }
+}
+function tryParseContent(s) {
+  if (typeof s !== 'string') return s;
+  const t = s.trim();
+  if (!t.startsWith('[') || !t.endsWith(']')) return s;
+  try {
+    const parsed = JSON.parse(t);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {}
+  return s;
+}
+
+async function loadConversation(cid) {
+  if (state.busy) { showError('Cannot switch conversations while a response is generating.'); return; }
+  try {
+    const r = await fetch('/conversations/' + encodeURIComponent(cid));
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    state.conversationId = data.id;
+    state.history = (data.messages || []).map(m => {
+      const out = {
+        role: m.role,
+        content: tryParseContent(m.content || ''),
+        reasoning_content: m.reasoning_content || undefined,
+      };
+      // reasoning_content may carry a sentinel JSON with artifacts/tool_log; parse if present
+      if (m.role === 'assistant' && typeof m.reasoning_content === 'string'
+          && m.reasoning_content.startsWith('__NIM_META__')) {
+        try {
+          const meta = JSON.parse(m.reasoning_content.slice('__NIM_META__'.length));
+          out.reasoning_content = meta.reasoning || undefined;
+          out.artifacts = meta.artifacts || [];
+          out.tool_log = meta.tool_log || [];
+        } catch {}
+      }
+      return out;
+    }).filter(m => m.role !== 'system');
+    if (data.model && [...els.model.options].some(o => o.value === data.model)) {
+      els.model.value = data.model;
+      els.modelTag.textContent = isAutoMode() ? 'auto' : data.model;
+      syncReasoningVisibility();
+    }
+    if (data.system_prompt !== null && data.system_prompt !== undefined) {
+      els.systemPrompt.value = data.system_prompt;
+    }
+    els.topbarTitle.textContent = data.title || '(untitled)';
+    renderHistory();
+    renderConvList();
+  } catch (e) { showError('Failed to load conversation: ' + e.message); }
+}
+
+async function createConversation() {
+  const r = await fetch('/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: isAutoMode() ? null : els.model.value,
+      system_prompt: els.systemPrompt.value || null,
+    }),
+  });
+  if (!r.ok) throw new Error(`create failed: HTTP ${r.status}`);
+  return await r.json();
+}
+
+async function appendMessage(cid, role, content, reasoning_content) {
+  const serialized = (typeof content === 'string') ? content : JSON.stringify(content);
+  const r = await fetch(`/conversations/${encodeURIComponent(cid)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role, content: serialized, reasoning_content: reasoning_content || null }),
+  });
+  if (!r.ok) throw new Error(`save failed: ${await r.text()}`);
+  return await r.json();
+}
+
+async function deleteConversation(cid) {
+  try {
+    const r = await fetch('/conversations/' + encodeURIComponent(cid), { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch (e) { showError('Delete failed: ' + e.message); return; }
+  if (state.conversationId === cid) newChat();
+  await fetchConvList();
+}
+
+function newChat() {
+  if (state.busy) { showError('Cannot start a new chat while a response is generating.'); return; }
+  tts.stop();
+  state.conversationId = null;
+  state.history = [];
+  state.attachments = [];
+  renderAttachments();
+  els.topbarTitle.innerHTML = '<em>New chat</em>';
+  renderEmpty();
+  renderConvList();
+  els.userInput.focus();
+}
+els.newChatBtn.addEventListener('click', newChat);
+// ================= Routing =================
+function estimateMessageTokens(messages) {
+  let total = 0;
+  for (const m of messages || []) {
+    const c = m.content;
+    if (typeof c === 'string') total += Math.floor(c.length / 3);
+    else if (Array.isArray(c)) {
+      for (const p of c) {
+        if (p.type === 'text') total += Math.floor((p.text || '').length / 3);
+        else if (p.type === 'image_url') total += 1500;
+      }
+    }
+  }
+  return total;
+}
+
+async function routeMessage(text, hasImage, estTokens, maxOutput, signal) {
+  try {
+    const r = await fetch('/v1/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, has_image: hasImage, est_tokens: estTokens, max_output: maxOutput }),
+      signal
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    return {
+      category: 'general',
+      model: 'meta/llama-4-maverick-17b-128e-instruct',
+      fallback: ['meta/llama-3.3-70b-instruct'],
+      reason: 'router error fallback',
+      notes: ['routing service unreachable']
+    };
+  }
+}
+
+// ================= Compaction =================
+// Replace the oldest portion of state.history with an LLM-generated summary
+// when conversation tokens exceed NVIDIA's effective context limit. The visual
+// affordance is a row of arrow glyphs (matching the ➹ logo) that fly off
+// during compaction, leaving 2 behind to mark the compacted region.
+
+function _flattenForCompaction(messages) {
+  // Convert mixed-content messages into plain {role, content} where content
+  // is a string. The server-side /v1/compact expects this format because the
+  // summarization model can't see image bytes anyway.
+  return messages.map(m => {
+    let content = m.content;
+    if (Array.isArray(content)) {
+      const parts = [];
+      for (const p of content) {
+        if (p.type === 'text') parts.push(p.text || '');
+        else if (p.type === 'image_url') parts.push('[image attached]');
+      }
+      content = parts.join(' ');
+    } else if (typeof content !== 'string') {
+      content = String(content || '');
+    }
+    return { role: m.role, content };
+  });
+}
+
+// Render a transient quiver-animation block at the top of the messages area.
+// Returns a handle with .finish(summary) that swaps the animation for a
+// permanent compacted-block, and .fail() that removes it.
+function _spawnQuiverBlock(messageCount) {
+  // Pick arrow count based on how many messages are being compacted
+  const arrowCount = messageCount < 5 ? 3 : (messageCount < 10 ? 5 : 7);
+  const wrap = document.createElement('div');
+  wrap.className = 'compact-block compact-running';
+  wrap.innerHTML = `
+    <div class="compact-quiver" data-arrows="${arrowCount}">
+      ${Array.from({length: arrowCount}, (_, i) => `<span class="arrow" style="--i:${i};">➹</span>`).join('')}
+    </div>
+    <div class="compact-label">${messageCount} older messages being compacted…</div>
+  `;
+  // Append at the END of messagesInner so the user can actually see it —
+  // their viewport is locked to the bottom of the conversation. Inserting
+  // at the top would put the animation outside their field of view.
+  // Semantically this is also fine: in the new compaction paradigm, the
+  // entire history collapses into a single summary entry, and that entry's
+  // natural position is at the most recent location.
+  els.messagesInner.appendChild(wrap);
+  // Scroll the new block into view in case the user had scrolled up.
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  return wrap;
+}
+
+function _renderCompactedBlock(wrap, summary, originalMessages) {
+  // Convert the running quiver into the permanent collapsed-block UI.
+  const count = originalMessages.length;
+  wrap.classList.remove('compact-running');
+  wrap.classList.add('compact-done');
+  wrap.innerHTML = `
+    <details class="compact-details">
+      <summary>
+        <span class="compact-arrows">➹➹</span>
+        <span class="compact-text">Previous ${count} messages compacted</span>
+        <span class="compact-toggle">▸</span>
+      </summary>
+      <div class="compact-summary"></div>
+      <div class="compact-divider">— original —</div>
+      <div class="compact-originals"></div>
+    </details>
+  `;
+  // Render the summary as markdown
+  wrap.querySelector('.compact-summary').innerHTML = renderMarkdown(summary);
+  // Render the originals as plain transcript (no full bubbles — keep compact)
+  const origContainer = wrap.querySelector('.compact-originals');
+  for (const m of originalMessages) {
+    const row = document.createElement('div');
+    row.className = 'compact-original-msg compact-original-' + (m.role || 'user');
+    const roleLabel = m.role === 'assistant' ? 'Robot' : (m.role === 'user' ? 'You' : m.role);
+    let bodyText = '';
+    if (typeof m.content === 'string') bodyText = m.content;
+    else if (Array.isArray(m.content)) {
+      bodyText = m.content.map(p =>
+        p.type === 'text' ? p.text : (p.type === 'image_url' ? '[image]' : '')
+      ).join(' ');
+    }
+    row.innerHTML = `<div class="compact-original-role">${roleLabel}</div>`;
+    const body = document.createElement('div');
+    body.className = 'compact-original-body';
+    // Use markdown render for assistant; plain text for user (matches main UI)
+    if (m.role === 'assistant') body.innerHTML = renderMarkdown(bodyText);
+    else body.textContent = bodyText;
+    row.appendChild(body);
+    origContainer.appendChild(row);
+  }
+  // Toggle arrow rotation on open/close
+  const detailsEl = wrap.querySelector('.compact-details');
+  const toggleEl = wrap.querySelector('.compact-toggle');
+  detailsEl.addEventListener('toggle', () => {
+    toggleEl.textContent = detailsEl.open ? '▾' : '▸';
+  });
+}
+
+// NVIDIA's hosted instance enforces an effective ~131072-token context limit
+// regardless of the model spec. Auto-compaction triggers at 80% of this and
+// /compact's `fix N%` mode is computed against this same value.
+const NVIDIA_CTX_LIMIT = 131072;
+
+// Per-chunk character budget — initial guess. If a chunk fails (NVIDIA's
+// hosted instance has an undocumented limit much smaller than the model's
+// 1M-token spec — empirically around 131K tokens regardless of model), the
+// chunk is split in half and retried. Setting this large is fine because
+// failures auto-recover; setting it too small just means more sequential
+// calls when not needed.
+const MAX_CHUNK_CHARS = 600_000;
+
+// Single-call compaction. POSTs a flattened message array to /v1/compact.
+// targetTokens (optional) hints the server's summary budget. Returns
+// {ok: true, summary} on success, {ok: false, status, detail} on HTTP error,
+// or throws on AbortError / network failure.
+async function _compactOnce(flatMessages, signal, targetTokens) {
+  const body = { messages: flatMessages };
+  if (targetTokens) body.target_max_tokens = targetTokens;
+  const r = await fetch('/v1/compact', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    return { ok: false, status: r.status, detail };
+  }
+  const data = await r.json();
+  return { ok: true, summary: data.summary || '' };
+}
+
+// Compact with auto-split: try once, and if NVIDIA rejects (most likely as
+// HTTP 400 due to context-length overflow), split the chunk in half and
+// retry recursively. Base case: a chunk with 1 message can't be split
+// further — surface the failure.
+//
+// onProgress(stage) is called with strings like "1/4 chunks (attempt 1)" so the
+// caller can update the UI label.
+async function _compactWithSplit(flatMessages, signal, onProgress, depth = 0, targetTokens) {
+  if (flatMessages.length === 0) return null;
+
+  // Only pass targetTokens to the LLM at the top level (depth 0). For
+  // recursive partial summaries inside the split-retry tree, we let the
+  // server use its default budget — partial summaries should be more
+  // generous so that information survives to the merge stage. The final
+  // merge call also gets the user-requested targetTokens.
+  const passTarget = (depth === 0) ? targetTokens : undefined;
+  const result = await _compactOnce(flatMessages, signal, passTarget);
+  if (result.ok) return result.summary;
+
+  // Failed. Decide whether to split-retry.
+  // Only retry on 400 (most likely token overflow). Other statuses (rate
+  // limit 429, server error 5xx, auth 401/403) are not solved by splitting,
+  // so we surface them.
+  if (result.status !== 400) {
+    console.warn('compact non-retryable failure', result.status, result.detail);
+    return null;
+  }
+
+  // 400 with a single message: try splitting the message TEXT itself in
+  // half. Useful for giant PDF/document pastes that come in as one user
+  // message. We split at paragraph boundaries when possible, falling back
+  // to mid-text. Each half becomes a synthetic message and goes back
+  // through the same recursive process.
+  if (flatMessages.length === 1) {
+    const only = flatMessages[0];
+    const text = only.content || '';
+    if (text.length < 4000) {
+      // Already short — splitting won't help, NVIDIA is rejecting for some
+      // other reason (or our budget estimate was wrong about THIS message).
+      console.warn('compact failed on small single message — non-splittable', result.detail);
+      return null;
+    }
+
+    // Find a good split point near the middle. Prefer paragraph break
+    // (\n\n), then sentence boundary, then any newline, then raw midpoint.
+    const mid = Math.floor(text.length / 2);
+    const window = Math.floor(text.length / 5);   // search ±20% around middle
+    const lo = Math.max(0, mid - window);
+    const hi = Math.min(text.length, mid + window);
+    let splitAt = -1;
+    // Best: paragraph break
+    splitAt = text.lastIndexOf('\n\n', hi);
+    if (splitAt < lo) splitAt = -1;
+    // Next: any newline
+    if (splitAt === -1) {
+      splitAt = text.lastIndexOf('\n', hi);
+      if (splitAt < lo) splitAt = -1;
+    }
+    // Next: sentence-ending punctuation followed by space
+    if (splitAt === -1) {
+      const region = text.slice(lo, hi);
+      const m = region.match(/[.!?。!?]\s/g);
+      if (m) {
+        // Take the last occurrence in the search window
+        const lastIdx = region.lastIndexOf(m[m.length - 1]);
+        if (lastIdx >= 0) splitAt = lo + lastIdx + 1;
+      }
+    }
+    // Last resort: raw midpoint
+    if (splitAt === -1 || splitAt < lo) splitAt = mid;
+
+    const firstText = text.slice(0, splitAt).trimEnd();
+    const secondText = text.slice(splitAt).trimStart();
+
+    if (onProgress) {
+      onProgress(`Splitting a long single message (depth ${depth + 1})…`);
+    }
+
+    const [a, b] = await Promise.all([
+      _compactWithSplit([{role: only.role, content: firstText}], signal, onProgress, depth + 1, targetTokens),
+      _compactWithSplit([{role: only.role, content: secondText}], signal, onProgress, depth + 1, targetTokens),
+    ]);
+    if (!a || !b) return null;
+
+    const mergeInput = [
+      { role: 'user', content: `## Section A\n\n${a}` },
+      { role: 'user', content: `## Section B\n\n${b}` },
+    ];
+    // Merge call gets the targetTokens budget — this is the final output.
+    const mergeResult = await _compactOnce(mergeInput, signal, targetTokens);
+    if (!mergeResult.ok) {
+      console.warn('compact merge (single-msg split) failed', mergeResult.status, mergeResult.detail);
+      return null;
+    }
+    return mergeResult.summary;
+  }
+
+  // Safety limit: don't recurse forever. With a 1M-char input and halving,
+  // depth >20 means we're chunking down to under 1 char — something else is
+  // wrong.
+  if (depth > 20) {
+    console.warn('compact split depth exceeded', depth);
+    return null;
+  }
+
+  // Split in half at message boundary. Each half goes through the same
+  // recursive process. After both halves succeed, merge their summaries.
+  const mid = Math.floor(flatMessages.length / 2);
+  const firstHalf = flatMessages.slice(0, mid);
+  const secondHalf = flatMessages.slice(mid);
+
+  if (onProgress) {
+    onProgress(`Chunk too big — retrying split (depth ${depth + 1})…`);
+  }
+
+  const [a, b] = await Promise.all([
+    _compactWithSplit(firstHalf, signal, onProgress, depth + 1, targetTokens),
+    _compactWithSplit(secondHalf, signal, onProgress, depth + 1, targetTokens),
+  ]);
+  if (!a || !b) return null;
+
+  // Merge the two halves by feeding both summaries back through compact.
+  // This is just a small text-merge call (intermediate summaries are short),
+  // so it shouldn't itself fail.
+  const mergeInput = [
+    { role: 'user', content: `## Section A\n\n${a}` },
+    { role: 'user', content: `## Section B\n\n${b}` },
+  ];
+  // Merge gets the targetTokens budget — this becomes the final output.
+  const mergeResult = await _compactOnce(mergeInput, signal, targetTokens);
+  if (!mergeResult.ok) {
+    console.warn('compact merge failed', mergeResult.status, mergeResult.detail);
+    return null;
+  }
+  return mergeResult.summary;
+}
+
+// Split a flat message array into chunks where each chunk's total content
+// length is <= MAX_CHUNK_CHARS. Splits at message boundaries to keep each
+// chunk self-contained. If a single message itself exceeds the budget (e.g.
+// a giant pasted PDF), it goes into its own chunk and we let the server-side
+// summarizer truncate-or-fail on it.
+function _chunkFlatMessages(flatMessages) {
+  const chunks = [];
+  let current = [];
+  let currentChars = 0;
+  for (const m of flatMessages) {
+    const len = (m.content || '').length;
+    if (current.length > 0 && currentChars + len > MAX_CHUNK_CHARS) {
+      chunks.push(current);
+      current = [];
+      currentChars = 0;
+    }
+    current.push(m);
+    currentChars += len;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+// Full compaction pipeline. Splits oversize input into chunks, compacts each
+// sequentially, then merges intermediate summaries into a final summary.
+// Updates the quiver block's label to show progress through stages.
+//
+// targetTokens (optional): the budget for the FINAL output summary. Partial
+// summaries during chunked compaction don't honor this — only the final
+// merge call does. If not provided, the server uses its default.
+//
+// Returns {summary, ...} on success, null on failure.
+async function runCompaction(messagesToCompact, targetTokens) {
+  if (!messagesToCompact || messagesToCompact.length === 0) return null;
+
+  const wrap = _spawnQuiverBlock(messagesToCompact.length);
+  const labelEl = wrap.querySelector('.compact-label');
+  const setLabel = (text) => { if (labelEl) labelEl.textContent = text; };
+
+  const signal = state.abort ? state.abort.signal : undefined;
+
+  try {
+    const flat = _flattenForCompaction(messagesToCompact);
+    const totalChars = flat.reduce((s, m) => s + (m.content || '').length, 0);
+
+    let finalSummary = null;
+
+    if (totalChars <= MAX_CHUNK_CHARS) {
+      // Single-call path. _compactWithSplit at depth 0 passes targetTokens
+      // to the LLM; on a 400, partial sub-summaries omit the budget but the
+      // final merge call gets it back.
+      setLabel(`${messagesToCompact.length} older messages being compacted…`);
+      finalSummary = await _compactWithSplit(flat, signal, setLabel, 0, targetTokens);
+    } else {
+      // Split path: pre-chunk by our initial budget. Per-chunk partial
+      // summaries don't honor targetTokens (they're intermediate). Only the
+      // final merge below does.
+      const chunks = _chunkFlatMessages(flat);
+      const intermediates = [];
+      for (let i = 0; i < chunks.length; i++) {
+        setLabel(`Splitting large conversation: ${i + 1}/${chunks.length} chunks…`);
+        const partial = await _compactWithSplit(chunks[i], signal, (msg) => {
+          setLabel(`${i + 1}/${chunks.length} chunk: ${msg}`);
+        }, 0);
+        if (!partial) {
+          wrap.remove();
+          return null;
+        }
+        intermediates.push(partial);
+      }
+
+      // Merge stage: targetTokens applies here — final output budget.
+      setLabel(`${chunks.length} partial summaries being merged…`);
+      const mergeInput = intermediates.map((s, i) => ({
+        role: 'user',
+        content: `## Section ${i + 1} of ${intermediates.length}\n\n${s}`,
+      }));
+      finalSummary = await _compactWithSplit(mergeInput, signal, setLabel, 0, targetTokens);
+    }
+
+    if (!finalSummary) {
+      wrap.remove();
+      return null;
+    }
+
+    _renderCompactedBlock(wrap, finalSummary, messagesToCompact);
+    return { summary: finalSummary };
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      wrap.remove();
+      throw e;
+    }
+    console.warn('compact error', e);
+    wrap.remove();
+    return null;
+  }
+}
+
+// ================= Slash commands =================
+// Generic command dispatcher. Each command is a {match, run, help} entry.
+// Adding a new command (say /clear or /model) means appending one entry.
+//
+// Commands return:
+//   - true  → consumed (input cleared, no LLM call)
+//   - false → not recognized (input falls through to LLM)
+// Async commands return a Promise resolving to the same.
+
+const SLASH_COMMANDS = [
+  {
+    name: '/compact',
+    syntax: '/compact [rel <pct>|fix <pct>]',
+    description: 'Compact the entire conversation into a single AI-generated summary. Default: rel 20 (20% of current tokens).',
+    examples: [
+      '/compact          → 20%  of current tokens',
+      '/compact rel 30   → 30%  of current tokens',
+      '/compact fix 10   → 10%  of current tokens',
+    ],
+    run: handleCompactCommand,
+  },
+  {
+    name: '/help',
+    syntax: '/help [command]',
+    description: 'List available commands, or get help for a specific one.',
+    examples: ['/help', '/help compact'],
+    run: handleHelpCommand,
+  },
+];
+
+function _parseSlashCommand(text) {
+  // Returns {name, args} or null. name includes the leading slash.
+  // args is an array of whitespace-separated tokens.
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/')) return null;
+  const parts = trimmed.split(/\s+/);
+  return { name: parts[0].toLowerCase(), args: parts.slice(1) };
+}
+
+async function handleSlashCommand(text) {
+  const parsed = _parseSlashCommand(text);
+  if (!parsed) return false;
+  const cmd = SLASH_COMMANDS.find(c => c.name === parsed.name);
+  if (!cmd) {
+    // Unknown slash: show error but still consume so the user doesn't
+    // accidentally send "/cmpct" to the LLM. Suggest /help.
+    showError(`Unknown command: ${parsed.name}. /help  for the list of commands.`);
+    return true;
+  }
+  try {
+    const result = await cmd.run(parsed.args);
+    return result !== false;   // commands default to "consumed" unless they return false
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      // Treat as consumed; user already saw the abort
+      return true;
+    }
+    showError(`Command execution failed: ${e.message || e}`);
+    return true;
+  }
+}
+
+// ----- /compact -----
+// Manual /compact compresses the ENTIRE current conversation history into a
+// single summary message. Subsequent turns build on top of that summary plus
+// any new messages the user adds before next /compact.
+//
+// Modes:
+//   rel N (default 20): summary target = N% of CURRENT estimated tokens
+//     (e.g. 10K tokens + rel 30 → ~3K-token summary)
+//   fix N: summary target = N% of MODEL CONTEXT LIMIT
+//     (e.g. Maverick has 1M ctx → fix 30 → up to ~300K-token summary, but
+//      typically the actual summary will be smaller because the LLM
+//      compresses naturally).
+//
+// Both N values are 1..99 percent.
+function _resolveCompactRange(args) {
+  const history = state.history;
+  if (history.length === 0) {
+    return { error: 'Conversation is empty — nothing to compact.' };
+  }
+
+  // Default: rel 20 → summary target = 20% of current size
+  let mode = 'rel';
+  let value = 20;
+
+  if (args.length === 0) {
+    // use defaults
+  } else if (args.length === 2) {
+    mode = args[0].toLowerCase();
+    value = parseInt(args[1], 10);
+    if (mode !== 'rel' && mode !== 'fix') {
+      return { error: `Mode must be 'rel' or 'fix'. Example: /compact rel 20` };
+    }
+    if (!Number.isFinite(value) || value < 1 || value > 99) {
+      return { error: 'Value must be an integer between 1 and 99.' };
+    }
+  } else {
+    return { error: 'Usage: /compact [rel <percent> | fix <percent>]  (both 1–99)' };
+  }
+
+  // Estimate current input tokens. Use the existing helper if available,
+  // else inline a quick char/3 approximation matching what the server uses.
+  const currentTokens = estimateMessageTokens(history);
+
+  // Compute target_max_tokens for the summary output.
+  let targetTokens;
+  if (mode === 'rel') {
+    // rel 20 of 10K tokens = 2K target
+    targetTokens = Math.max(64, Math.floor(currentTokens * value / 100));
+  } else {
+    // fix 30 of Maverick 1M ctx = 300K target. But we cap at a generous
+    // ceiling — even fix 99 shouldn't blow the model's max_output cap.
+    // NVIDIA's hosted Maverick caps max_tokens at 8192 in practice.
+    targetTokens = Math.max(64, Math.floor(NVIDIA_CTX_LIMIT * value / 100));
+  }
+  // Hard cap at the upstream's max_output capacity (8192 for Maverick).
+  // Higher targets get silently truncated, which produces broken summaries.
+  targetTokens = Math.min(targetTokens, 8192);
+
+  // Sanity floor on input: if there's almost nothing to summarize, refuse.
+  // We measure chars this time (cheaper than calling estimateMessageTokens
+  // again, and consistent with previous version's diagnostic).
+  let transcriptChars = 0;
+  for (const m of history) {
+    const c = m.content;
+    if (typeof c === 'string') transcriptChars += c.length;
+    else if (Array.isArray(c)) {
+      for (const p of c) {
+        if (p.type === 'text') transcriptChars += (p.text || '').length;
+      }
+    }
+  }
+  const MIN_COMPACT_CHARS = 500;
+  if (transcriptChars < MIN_COMPACT_CHARS) {
+    return {
+      error: `Conversation too short (${transcriptChars} chars; minimum ${MIN_COMPACT_CHARS} chars required). Try again after more turns.`
+    };
+  }
+
+  return {
+    mode, value,
+    targetTokens,
+    currentTokens,
+    transcriptChars,
+    toCompact: history.slice(),   // entire history
+  };
+}
+
+async function handleCompactCommand(args) {
+  // Reject if a previous compaction is still running (busy state)
+  if (state.busy) {
+    showError('Another operation already in progress.');
+    return true;
+  }
+
+  const range = _resolveCompactRange(args);
+  if (range.error) {
+    showError(range.error);
+    return true;
+  }
+
+  // Acquire abort lock so /compact respects the same abort plumbing as
+  // sendMessage. This also prevents concurrent sendMessage during compaction.
+  state.busy = true;
+  state.abort = new AbortController();
+  els.sendBtn.textContent = 'Stop';
+  els.sendBtn.classList.add('stop-mode');
+
+  try {
+    const result = await runCompaction(range.toCompact, range.targetTokens);
+    if (result && result.summary) {
+      // Replace the entire history with a single compacted entry. Subsequent
+      // turns build on top of [summary, ...new messages...]. When the user
+      // calls /compact again later, the whole thing (old summary + new
+      // messages) gets summarized again into a fresh single entry.
+      const compactedEntry = {
+        role: 'system',
+        content: '[Conversation summary]\n\n' + result.summary,
+        _compacted: true,
+        _compactedFrom: range.toCompact.length,
+        _originalMessages: range.toCompact,
+      };
+      state.history = [compactedEntry];
+      // Visual confirmation is already provided by _renderCompactedBlock.
+    } else {
+      showError('Compaction failed.');
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      showError('Compaction error: ' + (e.message || e));
+    }
+  } finally {
+    state.busy = false;
+    state.abort = null;
+    els.sendBtn.textContent = 'Send';
+    els.sendBtn.classList.remove('stop-mode');
+  }
+  return true;
+}
+
+// ----- /help -----
+async function handleHelpCommand(args) {
+  // Build a help bubble in the messages area — uses the assistant bubble
+  // factory so the content goes through normal markdown rendering.
+  const helpHandle = makeAssistantBubble();
+  helpHandle.setRouting({
+    model: 'system',
+    category: 'command',
+    reason: 'slash command help',
+    confidence: 1.0,
+    fallback: [],
+  });
+
+  let body;
+  if (args.length === 0) {
+    const lines = ['## Available commands', ''];
+    for (const cmd of SLASH_COMMANDS) {
+      lines.push(`**\`${cmd.syntax}\`**`);
+      lines.push(cmd.description);
+      lines.push('');
+    }
+    lines.push('Detail for a specific command: `/help <name>` (example: `/help compact`)');
+    body = lines.join('\n');
+  } else {
+    const target = args[0].startsWith('/') ? args[0] : '/' + args[0];
+    const cmd = SLASH_COMMANDS.find(c => c.name === target);
+    if (!cmd) {
+      body = `Unknown command: \`${target}\`\n\n\`/help\`  for the full list.`;
+    } else {
+      body = [
+        `## \`${cmd.name}\``,
+        '',
+        `**Syntax**: \`${cmd.syntax}\``,
+        '',
+        cmd.description,
+        '',
+        '**Examples**:',
+        '```',
+        ...cmd.examples,
+        '```',
+      ].join('\n');
+    }
+  }
+
+  helpHandle.setContent(body);
+  helpHandle.addCopyButton();
+  return true;
+}
+
+// ================= API call =================
+async function callAPI(model, messages, useStream, fallbackChain, useTools) {
+  const body = {
+    model, messages,
+    max_tokens: parseInt(els.maxTokens.value, 10),
+    temperature: parseFloat(els.temperature.value),
+    top_p: parseFloat(els.topP.value),
+    frequency_penalty: parseFloat(els.freqPen.value),
+    presence_penalty: parseFloat(els.presPen.value),
+    stream: useStream
+  };
+  if (isDeepseekV4(model)) {
+    const eff = els.reasoningEffort.value;
+    if (eff === 'off') body.chat_template_kwargs = { enable_thinking: false };
+    else if (eff === 'max') body.chat_template_kwargs = { enable_thinking: true, thinking: true, reasoning_effort: 'max' };
+    else body.chat_template_kwargs = { enable_thinking: true, thinking: true };
+  }
+  if (Array.isArray(fallbackChain) && fallbackChain.length > 0) body._fallback = fallbackChain;
+  if (useTools) body._use_tools = true;
+
+  // state.abort is created upstream in sendMessage() so the Stop button can
+  // abort *all* phases (route call + completions stream), not just the final
+  // completions stream. Don't overwrite it here.
+  const res = await fetch('/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': useStream ? 'text/event-stream' : 'application/json'
+    },
+    body: JSON.stringify(body),
+    signal: state.abort ? state.abort.signal : undefined
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    let msg = `HTTP ${res.status}`;
+    let ledger = null, toolLog = null;
+    try {
+      const j = JSON.parse(errText);
+      msg = j.error?.message || j.detail || j.message || errText;
+      ledger = j.error?.ledger || null;
+      toolLog = j.error?._nim_tool_log || null;
+    } catch { msg = errText.slice(0, 300) || msg; }
+    const err = new Error(msg);
+    err.ledger = ledger; err.toolLog = toolLog; err.status = res.status;
+    throw err;
+  }
+  return res;
+}
+
+async function handleStream(res, handle, translator) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '', reasoning = '', content = '';
+  let artifacts = [], toolLog = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line || !line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') return { reasoning, content, artifacts, toolLog };
+      try {
+        const j = JSON.parse(data);
+        // tool-mode trailer carries _nim_artifacts and _nim_tool_log instead of choices
+        if (Array.isArray(j._nim_artifacts)) artifacts = j._nim_artifacts;
+        if (Array.isArray(j._nim_tool_log)) toolLog = j._nim_tool_log;
+        const d = j.choices?.[0]?.delta || {};
+        if (typeof d.reasoning_content === 'string' && d.reasoning_content) {
+          reasoning += d.reasoning_content;
+          handle.setReasoning(reasoning);
+          translator.feed(reasoning);
+        }
+        if (typeof d.content === 'string' && d.content) {
+          if (!content) translator.flush();
+          content += d.content;
+          handle.setContent(content);
+          scrollToBottom();
+        }
+      } catch {}
+    }
+  }
+  return { reasoning, content, artifacts, toolLog };
+}
+
+function decodeLedgerHeader(value) {
+  if (!value) return null;
+  try {
+    const json = atob(value);
+    const decoded = decodeURIComponent(escape(json));
+    return JSON.parse(decoded);
+  } catch {
+    try { return JSON.parse(atob(value)); } catch { return null; }
+  }
+}
+
+function buildUserContent(text, attachments) {
+  const textParts = [];
+  const imageParts = [];
+  for (const a of attachments) {
+    if (a.kind === 'image') {
+      imageParts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    } else if (a.kind === 'text') {
+      const lang = FENCE_LANG[a.ext] !== undefined ? FENCE_LANG[a.ext] : '';
+      const fence = '```' + lang;
+      textParts.push(`[Attachment: ${a.name}]\n${fence}\n${a.text}\n\`\`\``);
+    } else if (a.kind === 'pdf') {
+      const head = `[PDF attachment: ${a.name} (${a.n_pages || '?'} pages)]`;
+      textParts.push(`${head}\n${a.text || '(no text extracted)'}`);
+    }
+  }
+  const combinedText = [text, ...textParts].filter(Boolean).join('\n\n');
+  if (imageParts.length === 0) return combinedText;
+  return [{ type: 'text', text: combinedText }, ...imageParts];
+}
+
+// ================= Send =================
+async function sendMessage() {
+  if (state.busy) return;
+  if (state.attachments.some(a => a.busy)) {
+    showError('Still reading attachment. Try again in a moment.'); return;
+  }
+  const text = els.userInput.value.trim();
+  const attachments = state.attachments.slice();
+  if (!text && attachments.length === 0) return;
+  if (!state.proxyOk) {
+    showError('Proxy server not responding — check that `python serve.py` is running.'); return;
+  }
+
+  // ============= Slash command interception =============
+  // If the input starts with "/" and has no attachments, route through the
+  // command dispatcher instead of sending to the LLM. Commands consume the
+  // input and produce side effects (e.g. compaction) directly.
+  if (text.startsWith('/') && attachments.length === 0) {
+    const handled = await handleSlashCommand(text);
+    if (handled) {
+      els.userInput.value = '';
+      autoResize();
+      return;
+    }
+    // fall through if not recognized — let the LLM see it as normal text
+  }
+
+  tts.stop();
+
+  state.busy = true;
+  // Create abort controller IMMEDIATELY so the Stop button can cancel
+  // every phase: createConversation, appendMessage, routeMessage, AND the
+  // final completions stream. Previously we created it just before
+  // /v1/chat/completions, so the Stop button was a no-op during the ~10s
+  // routing phase (Maverick deciding which model to use).
+  state.abort = new AbortController();
+  // Switch Send button into Stop button — clicking it aborts the in-flight stream.
+  // The fetch() above uses signal: state.abort.signal, so abort() unwinds the
+  // streaming reader, the catch (e.name === 'AbortError') runs, and finalizeError
+  // posts "cancelled". Then finally restores the Send button.
+  els.sendBtn.textContent = 'Stop';
+  els.sendBtn.classList.add('stop-mode');
+  els.sendBtn.disabled = false;  // must stay enabled to be clickable as Stop
+
+  if (state.history.length === 0) clearMessages();
+
+  const userContent = buildUserContent(text, attachments);
+  state.history.push({ role: 'user', content: userContent });
+  appendUserBubble(userContent);
+  els.userInput.value = '';
+  state.attachments = [];
+  renderAttachments();
+  autoResize();
+
+  let cid = state.conversationId;
+  if (!cid) {
+    try {
+      const meta = await createConversation();
+      cid = meta.id;
+      state.conversationId = cid;
+      els.topbarTitle.textContent = meta.title || '(untitled)';
+    } catch (e) { showError('Failed to create conversation: ' + e.message); }
+  }
+  if (cid) {
+    try {
+      const resp = await appendMessage(cid, 'user', userContent);
+      if (resp.conversation?.title) els.topbarTitle.textContent = resp.conversation.title;
+    } catch (e) { console.warn('user save', e); }
+  }
+
+  const apiMessages = [];
+  const sys = els.systemPrompt.value.trim();
+  if (sys) apiMessages.push({ role: 'system', content: sys });
+  for (const m of state.history) apiMessages.push({ role: m.role, content: m.content });
+
+  // ============= Auto-compaction trigger =============
+  // If the prospective payload exceeds NVIDIA's effective context limit, run
+  // /compact on everything EXCEPT the just-typed user message — that message
+  // gets answered fresh. The auto trigger uses a fixed 20% target (rel 20),
+  // mirroring the manual /compact default.
+  const COMPACT_THRESHOLD = Math.floor(NVIDIA_CTX_LIMIT * 0.80);   // 104857
+  const preTokens = estimateMessageTokens(apiMessages);
+  if (preTokens > COMPACT_THRESHOLD && state.history.length >= 4) {
+    // The last entry in state.history is the user message just pushed. We
+    // preserve it verbatim and compact everything before it.
+    const lastIdx = state.history.length - 1;
+    const priorHistory = state.history.slice(0, lastIdx);
+    const lastMsg = state.history[lastIdx];
+
+    // Target: 20% of current prior tokens. Same convention as `/compact rel 20`.
+    const priorTokens = estimateMessageTokens(priorHistory);
+    const targetTokens = Math.min(8192, Math.max(64, Math.floor(priorTokens * 0.20)));
+
+    const quiverHandle = await runCompaction(priorHistory, targetTokens);
+    if (quiverHandle && quiverHandle.summary) {
+      const compactedEntry = {
+        role: 'system',
+        content: '[Earlier conversation summary]\n\n' + quiverHandle.summary,
+        _compacted: true,
+        _compactedFrom: priorHistory.length,
+        _originalMessages: priorHistory,
+      };
+      state.history = [compactedEntry, lastMsg];
+
+      // Rebuild apiMessages from the new history
+      apiMessages.length = 0;
+      if (sys) apiMessages.push({ role: 'system', content: sys });
+      for (const m of state.history) apiMessages.push({ role: m.role, content: m.content });
+    }
+    // If compaction failed (quiverHandle null or no summary), we proceed with
+    // the original oversized history. NVIDIA will reject it with a clearer
+    // error message and we surface that to the user — better than blocking
+    // their request entirely on our compaction failure.
+  }
+
+  const handle = makeAssistantBubble();
+  handle.setTyping();
+  const translator = new ThinkingTranslator(handle);
+  const responseTranslator = new ResponseTranslator(handle);
+
+  let chosenModel;
+  let fallbackChain = [];
+  const useTools = els.toolsToggle.checked;
+  // Tools mode forces non-streaming inside the loop; we still allow client-side streaming display
+  // because the server emits a synthetic SSE trailer for the final answer.
+  const useStream = els.streamToggle.checked;
+
+  if (isAutoMode()) {
+    const estTokens = estimateMessageTokens(apiMessages);
+    const maxOutput = parseInt(els.maxTokens.value, 10);
+    const hasImage = Array.isArray(userContent) && userContent.some(p => p.type === 'image_url');
+    const probeText = (typeof userContent === 'string') ? userContent
+                     : (userContent.find(p => p.type === 'text')?.text || '');
+    const routeInfo = await routeMessage(probeText, hasImage, estTokens, maxOutput,
+                                         state.abort ? state.abort.signal : undefined);
+    chosenModel = routeInfo.model;
+    fallbackChain = routeInfo.fallback || [];
+    routeInfo.tools_enabled = useTools;
+    handle.setRouting(routeInfo);
+    els.modelTag.textContent = chosenModel;
+  } else {
+    chosenModel = els.model.value;
+    const hasImage = Array.isArray(userContent) && userContent.some(p => p.type === 'image_url');
+    if (hasImage || useTools) {
+      handle.setRouting({
+        category: hasImage ? 'vision (manual)' : 'manual',
+        model: chosenModel,
+        reason: hasImage ? 'manual model with image' : 'manual model',
+        tools_enabled: useTools,
+      });
+    }
+  }
+
+  let assistantContent = '', assistantReasoning = '';
+  let collectedArtifacts = [], collectedToolLog = [];
+  try {
+    const res = await callAPI(chosenModel, apiMessages, useStream, fallbackChain, useTools);
+    const servedModel = res.headers.get('X-NIM-Model');
+    const attempt = parseInt(res.headers.get('X-NIM-Attempt') || '1', 10);
+    const ledger = decodeLedgerHeader(res.headers.get('X-Recovery-Ledger'));
+    if (servedModel && servedModel !== chosenModel) {
+      handle.markFallback(servedModel, attempt);
+      els.modelTag.textContent = servedModel;
+    }
+    if (ledger && ledger.length) handle.attachLedger(ledger);
+
+    if (useStream) {
+      const out = await handleStream(res, handle, translator);
+      assistantContent = out.content;
+      assistantReasoning = out.reasoning;
+      collectedArtifacts = out.artifacts || [];
+      collectedToolLog = out.toolLog || [];
+      translator.flush();
+    } else {
+      const j = await res.json();
+      const m = j.choices?.[0]?.message || {};
+      assistantContent = m.content || '';
+      assistantReasoning = m.reasoning_content || '';
+      collectedArtifacts = j._nim_artifacts || [];
+      collectedToolLog = j._nim_tool_log || [];
+      if (assistantReasoning) {
+        handle.setReasoning(assistantReasoning);
+        translator.feed(assistantReasoning);
+        translator.flush();
+      }
+      handle.setContent(assistantContent || '*(empty response)*');
+    }
+
+    // Render artifacts (tool-generated images and audio).
+    // New artifacts come back with `url`; the b64 fallback covers any
+    // legacy code path that hasn't been migrated yet.
+    for (const a of collectedArtifacts) {
+      if (!a) continue;
+      const src = a.url
+        ? a.url
+        : (a.b64 ? `data:${a.format || (a.kind === 'audio' ? 'audio/wav' : 'image/png')};base64,${a.b64}` : null);
+      if (!src) continue;
+      if (a.kind === 'image') {
+        handle.appendArtifactImage(src, a.format || 'image/png', a.id || '');
+      } else if (a.kind === 'audio') {
+        handle.appendArtifactAudio(src, a.format || 'audio/wav', a.id || '', a.voice || '');
+      }
+    }
+    if (collectedToolLog.length) handle.attachToolLog(collectedToolLog);
+
+    if (assistantContent || assistantReasoning) {
+      const histEntry = {
+        role: 'assistant',
+        content: assistantContent,
+        reasoning_content: assistantReasoning || undefined,
+        artifacts: collectedArtifacts,
+        tool_log: collectedToolLog,
+      };
+      state.history.push(histEntry);
+      handle.addTtsButton();
+      handle.addCopyButton();
+    }
+
+    // Save to DB. We store reasoning_content as a sentinel-tagged JSON if there are
+    // artifacts or tool_log so they can be replayed when the conversation is reloaded.
+    if (cid && (assistantContent || assistantReasoning || collectedArtifacts.length)) {
+      let savedReasoning = assistantReasoning || null;
+      if (collectedArtifacts.length || collectedToolLog.length) {
+        savedReasoning = '__NIM_META__' + JSON.stringify({
+          reasoning: assistantReasoning || '',
+          artifacts: collectedArtifacts,
+          tool_log: collectedToolLog,
+        });
+      }
+      try { await appendMessage(cid, 'assistant', assistantContent, savedReasoning); }
+      catch (e) { console.warn('assistant save', e); }
+    }
+    // Auto-translate the response if the user has the toggle on AND the
+    // response language doesn't match the target. Fires after persistence
+    // so the translation isn't part of the saved message — translations
+    // are recomputed on each turn from the original.
+    if (assistantContent) {
+      try { responseTranslator.runOnce(assistantContent); } catch (e) { console.warn('response translate', e); }
+    }
+    if (cid && isAutoMode()) {
+      // Persist the auto-mode preference, NOT the served model. If we wrote
+      // back the concrete model id, reopening the conversation would lock the
+      // dropdown to that one model and re-routing would never run again.
+      // Each auto turn re-routes independently; the sidebar shows "auto".
+      try {
+        await fetch('/conversations/' + encodeURIComponent(cid), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'auto' })
+        });
+      } catch {}
+    }
+    await fetchConvList();
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      handle.finalizeError('cancelled');
+    } else {
+      handle.finalizeError(e.message);
+      if (e.ledger && e.ledger.length) handle.attachLedger(e.ledger);
+      if (e.toolLog && e.toolLog.length) handle.attachToolLog(e.toolLog);
+    }
+    translator.abort();
+    responseTranslator.abort();
+  } finally {
+    state.busy = false;
+    state.abort = null;
+    els.sendBtn.disabled = false;
+    els.sendBtn.textContent = 'Send';
+    els.sendBtn.classList.remove('stop-mode');
+    els.userInput.focus();
+  }
+}
+
+// Send button doubles as Stop button: when state.busy is true, clicking it
+// aborts the in-flight stream instead of trying to send a new message.
+function sendOrStop() {
+  if (state.busy) {
+    if (state.abort) {
+      try { state.abort.abort(); } catch (e) { /* already aborted */ }
+    }
+    return;
+  }
+  sendMessage();
+}
+
+els.sendBtn.addEventListener('click', sendOrStop);
+els.userInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    // Enter does NOT stop — only sends. Stopping requires the explicit button
+    // or Escape. This avoids accidentally aborting a stream while typing the
+    // next message into the still-focused composer.
+    if (!state.busy) sendMessage();
+  }
+});
+
+// Drag-drop file support
+['dragenter','dragover'].forEach(ev =>
+  document.addEventListener(ev, (e) => { e.preventDefault(); }));
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const files = Array.from(e.dataTransfer?.files || []);
+  if (files.length === 0) return;
+  for (const f of files) {
+    const slot = { kind: 'unknown', name: f.name, size: f.size, busy: true, _id: newAttId() };
+    state.attachments.push(slot);
+    renderAttachments();
+    try {
+      const meta = await ingestFile(f);
+      Object.assign(slot, meta, { busy: false });
+    } catch (err) {
+      const idx = state.attachments.indexOf(slot);
+      if (idx >= 0) state.attachments.splice(idx, 1);
+      showError(err.message);
+    }
+    renderAttachments();
+  }
+});
+
+// ================= Auth =================
+const authState = { user: null, mode: 'login' /* 'login' | 'register' */ };
+
+function showAuthOverlay(mode) {
+  authState.mode = mode || 'login';
+  document.getElementById('authOverlay').classList.remove('hidden');
+  setAuthMode(authState.mode);
+  document.getElementById('authError').classList.remove('show');
+  setTimeout(() => document.getElementById('authUsername').focus(), 50);
+}
+
+function hideAuthOverlay() {
+  document.getElementById('authOverlay').classList.add('hidden');
+  document.getElementById('authPassword').value = '';
+  document.getElementById('authRegToken').value = '';
+  document.getElementById('authApiKey').value = '';
+}
+
+function setAuthMode(mode) {
+  authState.mode = mode;
+  document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', mode === 'register');
+  document.getElementById('authSubmit').textContent = (mode === 'register' ? 'Sign up' : 'Log in');
+  document.getElementById('regTokenField').style.display = (mode === 'register' ? '' : 'none');
+  document.getElementById('apiKeyField').style.display = (mode === 'register' ? '' : 'none');
+  document.getElementById('authError').classList.remove('show');
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+async function doAuthSubmit() {
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const regToken = document.getElementById('authRegToken').value.trim();
+  const apiKey = document.getElementById('authApiKey').value.trim();
+  if (!username || !password) {
+    showAuthError('Please enter both username and password.');
+    return;
+  }
+  if (authState.mode === 'register' && !apiKey) {
+    showAuthError('Sign-up requires a NVIDIA API key. Get one at build.nvidia.com.');
+    return;
+  }
+  const btn = document.getElementById('authSubmit');
+  btn.disabled = true;
+  // Validation against NVIDIA happens server-side and can take ~2-5s; warn user
+  if (authState.mode === 'register') {
+    btn.textContent = 'Validating key...';
+  }
+  try {
+    const url = (authState.mode === 'register') ? '/v1/auth/register' : '/v1/auth/login';
+    const body = { username, password };
+    if (authState.mode === 'register') {
+      body.nvidia_api_key = apiKey;
+      if (regToken) body.registration_token = regToken;
+    }
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      if (r.status === 403 && authState.mode === 'register') {
+        showAuthError('Registration token required or invalid.');
+      } else if (r.status === 409) {
+        showAuthError('Username already taken.');
+      } else if (r.status === 401) {
+        showAuthError('Invalid username or password.');
+      } else if (r.status === 400) {
+        showAuthError(text || 'Please check your input.');
+      } else {
+        showAuthError(`Error (${r.status}): ${text.slice(0, 120)}`);
+      }
+      return;
+    }
+    const data = await r.json();
+    authState.user = data.user;
+    if (data.is_first_user && data.adopted_orphan_conversations) {
+      console.log(`[auth] adopted ${data.adopted_orphan_conversations} legacy conversations as first admin`);
+    }
+    hideAuthOverlay();
+    renderUserBox();
+    await probeServer();
+  } catch (e) {
+    showAuthError(`Network error: ${e.message || e}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = (authState.mode === 'register' ? 'Sign up' : 'Log in');
+  }
+}
+
+async function doLogout() {
+  try {
+    await fetch('/v1/auth/logout', { method: 'POST' });
+  } catch (e) { /* ignore */ }
+  authState.user = null;
+  renderUserBox();
+  // Wipe in-memory state and force re-auth
+  state.history = [];
+  state.currentConvId = null;
+  state.modelHealth = {};
+  if (typeof clearMessages === 'function') clearMessages();
+  if (typeof renderEmpty === 'function') renderEmpty();
+  if (typeof renderConvList === 'function') {
+    const list = document.getElementById('convList');
+    if (list) list.innerHTML = '<div class="conv-empty">No conversations yet</div>';
+  }
+  showAuthOverlay('login');
+}
+
+function renderUserBox() {
+  const box = document.getElementById('userBox');
+  if (!authState.user) {
+    box.style.display = 'none';
+    return;
+  }
+  document.getElementById('userName').textContent = authState.user.username;
+  document.getElementById('userBadge').innerHTML =
+    authState.user.is_admin ? '<span class="badge">ADMIN</span>' : '';
+  box.style.display = '';
+}
+
+async function checkAuth() {
+  try {
+    const r = await fetch('/v1/auth/me');
+    if (r.ok) {
+      const data = await r.json();
+      authState.user = data.user;
+      renderUserBox();
+      return true;
+    }
+  } catch (e) { /* fall through to login */ }
+  return false;
+}
+
+// Wire up auth UI events
+document.getElementById('tabLogin').addEventListener('click', () => setAuthMode('login'));
+document.getElementById('tabRegister').addEventListener('click', () => setAuthMode('register'));
+document.getElementById('authSubmit').addEventListener('click', doAuthSubmit);
+document.getElementById('logoutBtn').addEventListener('click', doLogout);
+document.getElementById('changeKeyBtn').addEventListener('click', async () => {
+  // Simple prompt — keeps the dependency surface zero (no extra modal).
+  // Pasted into a password prompt so the key isn't shoulder-surfable.
+  const cur = (authState.user && authState.user.key && authState.user.key.tail) || '';
+  const msg = cur
+    ? `New NVIDIA API key (current: ••••${cur}):`
+    : 'New NVIDIA API key (get one at build.nvidia.com):';
+  const newKey = prompt(msg);
+  if (newKey === null) return;            // cancel
+  const trimmed = newKey.trim();
+  if (!trimmed) { alert('Cannot save an empty key.'); return; }
+  try {
+    const r = await fetch('/v1/auth/key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nvidia_api_key: trimmed }),
+    });
+    if (r.ok) {
+      alert('Key updated.');
+      // Refresh local user state so the masked tail updates
+      try { const me = await (await fetch('/v1/auth/me')).json();
+            authState.user = me.user; renderUserBox(); } catch(_) {}
+    } else {
+      const t = await r.text();
+      alert(`Key update failed (${r.status}): ${t.slice(0, 200)}`);
+    }
+  } catch (e) {
+    alert(`Network error: ${e.message || e}`);
+  }
+});
+// Submit on Enter inside any auth field
+['authUsername', 'authPassword', 'authRegToken', 'authApiKey'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doAuthSubmit(); }
+  });
+});
+
+// ================= Init =================
+(async function bootstrap() {
+  const ok = await checkAuth();
+  if (ok) {
+    await probeServer();
+    els.userInput.focus();
+  } else {
+    showAuthOverlay('login');
+  }
+})();
+</script>
+
+</body>
+</html>
